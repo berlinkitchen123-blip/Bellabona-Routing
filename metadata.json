@@ -1,0 +1,7 @@
+{
+  "name": "BellaBona IntelliRoute",
+  "description": "A high-performance logistics management system for automated driver routing and reusable box tracking, featuring area-specific assignments and quota-based contract management.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
