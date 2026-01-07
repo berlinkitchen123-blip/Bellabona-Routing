@@ -515,13 +515,46 @@
         }
 
         function App() {
+            const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
             const [tours, setTours] = useState([]);
             const [view, setView] = useState('grid');
             const [loading, setLoading] = useState(false);
 
             useEffect(() => {
-                if (window.DEFAULT_ORDERS) {
-                    calculateInitialTours(window.DEFAULT_ORDERS);
+                const loadPlan = async () => {
+                    setLoading(true);
+                    try {
+                        const docRef = doc(db, "daily_plans", selectedDate);
+                        const docSnap = await getDoc(docRef);
+
+                        if (docSnap.exists()) {
+                            const data = docSnap.data();
+                            if (data.tours) {
+                                setTours(data.tours);
+                                console.log("Loaded plan for", selectedDate);
+                            }
+                        } else {
+                            // If no plan exists for this date, reset to empty or default state
+                            // Keep tours empty until user uploads something
+                            setTours([]);
+                        }
+                    } catch (e) {
+                        console.error("Error loading plan:", e);
+                    } finally {
+                        setLoading(false);
+                    }
+                };
+                loadPlan();
+            }, [selectedDate]);
+
+            useEffect(() => {
+                if (window.DEFAULT_ORDERS && tours.length === 0) {
+                    // Only load default if absolutely nothing else is loaded and we are on initial load? 
+                    // Actually, let's disable auto-loading window.DEFAULT_ORDERS if we want full calendar control.
+                    // Or only load it if we are on "today" and it's empty?
+                    // For now, let's leave it as a fallback but the calendar load above should take precedence if async works right.
+                    // To be safe, let's remove the legacy default loader or make it smarter.
+                    // calculateInitialTours(window.DEFAULT_ORDERS); 
                 }
             }, []);
 
@@ -546,20 +579,24 @@
                 }
 
                 setTours(newTours);
+                // Auto-save on move? Maybe better to have explicit save or debounce.
+                // For now, let's just update local state. User can re-upload to reset or we should add a "Save" button. 
+                // Actually, let's auto-save to cloud on move for seamless experience.
+                saveDailyPlan(newTours);
             };
 
             const [showUpload, setShowUpload] = useState(false);
 
-            const saveDailyPlan = async (tours) => {
-                const dateKey = new Date().toISOString().split('T')[0];
+            const saveDailyPlan = async (currentTours) => {
+                // Use the currently selected date
                 try {
-                    await setDoc(doc(db, "daily_plans", dateKey), {
-                        date: dateKey,
-                        tours: tours,
+                    await setDoc(doc(db, "daily_plans", selectedDate), {
+                        date: selectedDate,
+                        tours: currentTours,
                         drivers: DRIVERS,
                         lastUpdated: new Date().toISOString()
                     });
-                    console.log("Daily plan saved!");
+                    console.log("Daily plan saved for " + selectedDate);
                 } catch (e) {
                     console.error("Error saving daily plan", e);
                 }
@@ -611,6 +648,7 @@
                     alert("Invalid JSON format");
                 }
             };
+
 
             const STATIC_COORDS = {
                 "Adyen N.V. Berlin": { lat: 52.5126, lng: 13.4168 },
@@ -772,7 +810,10 @@
                     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
                         <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl w-full max-w-2xl shadow-2xl">
                             <h2 className="text-xl font-bold text-white mb-2">Upload Daily Plan</h2>
-                            <p className="text-slate-400 text-sm mb-4">Paste your daily orders JSON here. This will generate routes and save the plan to the cloud.</p>
+                            <p className="text-slate-400 text-sm mb-2">Paste your daily orders JSON here. This will generate routes and save the plan to the cloud.</p>
+                            <div className="bg-indigo-900/30 border border-indigo-700 rounded-lg px-4 py-2 mb-4">
+                                <span className="text-xs text-indigo-300 font-bold">📅 Saving to: {selectedDate}</span>
+                            </div>
                             <textarea
                                 className="w-full h-64 bg-slate-950 border border-slate-800 rounded p-4 text-xs font-mono text-slate-300 focus:outline-none focus:border-indigo-500"
                                 placeholder='[ { "name": "Company A", ... }, ... ]'
@@ -825,6 +866,15 @@
                             </nav>
                         </div>
                         <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-2 bg-slate-800 px-3 py-2 rounded border border-slate-600">
+                                <span className="text-xs text-slate-400 font-bold">📅</span>
+                                <input
+                                    type="date"
+                                    value={selectedDate}
+                                    onChange={(e) => setSelectedDate(e.target.value)}
+                                    className="bg-transparent text-slate-300 text-xs font-mono focus:outline-none cursor-pointer"
+                                />
+                            </div>
                             <button onClick={() => setShowUpload(true)} className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold px-3 py-2 rounded border border-slate-600 transition-colors flex items-center gap-2">
                                 <span>📤 UPLOAD / PASTE JSON</span>
                             </button>
