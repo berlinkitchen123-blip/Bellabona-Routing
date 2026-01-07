@@ -900,6 +900,23 @@
                 const activeTours = newTours.filter(t => driverAvailability[t.driverId] !== false);
                 const MAX_STOPS = 25; // Soft limit per driver
 
+                // PRIORITIZE ASSIGNMENT:
+                // 1. Sort by Deadline (Urgent first) -> Ensures drivers serve urgent/eating time needs
+                // 2. Then by Postal Code -> Groups remaining geographically
+                unassigned.sort((a, b) => {
+                    // Parse deadlines (e.g. "12:00")
+                    const getMinutes = (timeStr) => {
+                        if (!timeStr) return 9999;
+                        const [h, m] = timeStr.split(':').map(Number);
+                        return h * 60 + m;
+                    };
+                    const timeA = getMinutes(a.deliverySlotEnd);
+                    const timeB = getMinutes(b.deliverySlotEnd);
+
+                    if (timeA !== timeB) return timeA - timeB; // Earlier deadline first
+                    return (a.postCode || "").localeCompare(b.postCode || ""); // Then postal code
+                });
+
                 unassigned.forEach(order => {
                     let bestTour = null;
                     let minAddedDist = Infinity;
