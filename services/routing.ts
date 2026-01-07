@@ -1,6 +1,6 @@
 
-import { Order, Company, Tour, Driver, Area, BoxStatus, PickupTask } from '../types';
-import { MIN_STOPS_EVERYFLEET, START_TIME_MINS, DEADLINE_MINS } from '../constants';
+import { Order, Company, Tour, Driver, Area, BoxStatus, PickupTask } from '../types.ts';
+import { MIN_STOPS_EVERYFLEET, START_TIME_MINS, DEADLINE_MINS } from '../constants.ts';
 export const KITCHEN_LOCATION = "Friedrich Engels Straße 24, Potsdam";
 interface AddressComponents {
   street: string;
@@ -65,7 +65,7 @@ export const calculateTours = (
   availableDrivers: Driver[]
 ): { tours: Tour[], unassigned: Order[] } => {
   const companyMap = new Map(companies.map(c => [c.companyId, c]));
-  
+
   // Parse and enrich orders
   let orderPool = (Array.isArray(rawOrders) ? rawOrders : [rawOrders])
     .map(o => {
@@ -73,7 +73,7 @@ export const calculateTours = (
       const detail = companyMap.get(cid) || companies.find(c => c.name.toLowerCase() === (o.name || '').toLowerCase());
       const addr = o.deliveryAddress || detail?.address || '';
       const { street, building } = parseAddress(addr);
-      
+
       return {
         ...o,
         orderId: o.orderId || o.id || Math.random().toString(36).substr(2, 9),
@@ -90,33 +90,33 @@ export const calculateTours = (
     .filter(o => o.postCode.startsWith('1'));
   // **STEP 1: CREATE GEOGRAPHIC CLUSTERS**
   const clusters = createGeographicClusters(orderPool);
-  
+
   // **STEP 2: ASSIGN CLUSTERS TO DRIVERS BY SECTOR PREFERENCE**
   const tours: Map<string, Tour> = new Map();
   availableDrivers.forEach(d => {
     tours.set(d.id, { driverId: d.id, driverName: d.name, orders: [] });
   });
   const assignedClusters = new Set<number>();
-  
+
   // First pass: Assign clusters to drivers based on their preferred sectors
   for (const driver of availableDrivers) {
     const tour = tours.get(driver.id)!;
     const preferredSectors = DRIVER_SECTORS[driver.id] || [];
     const adjacentSectors = preferredSectors.flatMap(s => SECTOR_GROUPS[s] || []);
     const allowedSectors = Array.from(new Set([...preferredSectors, ...adjacentSectors]));
-    
+
     // Find clusters in driver's preferred sectors
     for (let i = 0; i < clusters.length && tour.orders.length < driver.capacity; i++) {
       if (assignedClusters.has(i)) continue;
-      
+
       const cluster = clusters[i];
       const clusterArea = cluster[0]?.area;
-      
+
       // Check if cluster is in driver's sector
       if (allowedSectors.includes(clusterArea)) {
         const ordersToAdd = cluster.slice(0, driver.capacity - tour.orders.length);
         tour.orders.push(...ordersToAdd as unknown as Order[]);
-        
+
         if (cluster.length === ordersToAdd.length) {
           assignedClusters.add(i);
         } else {
@@ -128,7 +128,7 @@ export const calculateTours = (
   }
   // **STEP 3: BALANCE LOAD - Distribute remaining clusters evenly**
   const remainingClusters = clusters.filter((_, idx) => !assignedClusters.has(idx)).flat();
-  
+
   // Sort drivers by current load (ascending) to balance
   const sortedDrivers = [...availableDrivers].sort((a, b) => {
     const aLoad = tours.get(a.id)!.orders.length;
@@ -143,12 +143,12 @@ export const calculateTours = (
     });
     if (driver) {
       const tour = tours.get(driver.id)!;
-      
+
       // Check time constraint
       const estimatedTime = calculateEstimatedTime([...tour.orders, order as unknown as Order]);
       if (estimatedTime <= DEADLINE_MINS) {
         tour.orders.push(order as unknown as Order);
-        
+
         // Re-sort to maintain balance
         sortedDrivers.sort((a, b) => {
           const aLoad = tours.get(a.id)!.orders.length;
@@ -166,8 +166,8 @@ export const calculateTours = (
   }
   const assignedOrderIds = new Set(Array.from(tours.values()).flatMap(t => t.orders.map(o => o.orderId)));
   const unassigned = orderPool.filter(o => !assignedOrderIds.has(o.orderId));
-  return { 
-    tours: Array.from(tours.values()).filter(t => t.orders.length > 0), 
+  return {
+    tours: Array.from(tours.values()).filter(t => t.orders.length > 0),
     unassigned: unassigned as unknown as Order[]
   };
 };
@@ -193,8 +193,8 @@ function createGeographicClusters(orders: any[]): any[][] {
     for (const candidate of sorted) {
       if (processed.has(candidate.orderId)) continue;
       // Same street and close buildings (within 5 building numbers)
-      if (candidate.street === order.street && 
-          Math.abs(candidate.building - order.building) <= 5) {
+      if (candidate.street === order.street &&
+        Math.abs(candidate.building - order.building) <= 5) {
         cluster.push(candidate);
         processed.add(candidate.orderId);
       }
@@ -204,8 +204,8 @@ function createGeographicClusters(orders: any[]): any[][] {
         processed.add(candidate.orderId);
       }
       // Same postcode
-      else if (candidate.postCode === order.postCode && 
-               candidate.area === order.area) {
+      else if (candidate.postCode === order.postCode &&
+        candidate.area === order.area) {
         cluster.push(candidate);
         processed.add(candidate.orderId);
       }
@@ -226,7 +226,7 @@ function optimizeTourSequence(orders: Order[]): Order[] {
   optimized.push(remaining.shift()!);
   while (remaining.length > 0) {
     const current = optimized[optimized.length - 1];
-    
+
     // Find nearest neighbor
     let bestIdx = 0;
     let bestScore = Infinity;
@@ -243,29 +243,29 @@ function optimizeTourSequence(orders: Order[]): Order[] {
 }
 function calculateTravelTime(from: any, to: any): number {
   if (!from || !to) return 5;
-  
+
   // Same building
   if (from.street === to.street && from.building === to.building) return 1;
-  
+
   // Same street, close buildings
   if (from.street === to.street && Math.abs(from.building - to.building) <= 2) return 2;
-  
+
   // Same street
   if (from.street === to.street) return 5;
-  
+
   // Same postcode
   if (from.postCode === to.postCode) return 10;
-  
+
   // Same area
   if (from.area === to.area) return 15;
-  
+
   // Different areas - heavy penalty
   return 30;
 }
 function calculateEstimatedTime(orders: Order[]): number {
   let time = START_TIME_MINS + 45; // 45 mins from Potsdam to Berlin
   for (let i = 1; i < orders.length; i++) {
-    time += calculateTravelTime(orders[i-1], orders[i]);
+    time += calculateTravelTime(orders[i - 1], orders[i]);
     time += 3; // 3 mins per stop for delivery
   }
   return time;
@@ -274,13 +274,13 @@ export const getMissingBoxTasks = (orders: Order[], companies: Company[]): Picku
   const activeTodayIds = new Set(orders.map(o => o.companyId));
   return companies
     .filter(c => c.boxStatus === BoxStatus.PENDING && !activeTodayIds.has(c.companyId))
-    .map(c => ({ 
-        companyId: c.companyId, 
-        companyName: c.name, 
-        address: c.address, 
-        postCode: c.postCode || '',
-        area: c.area,
-        fixedDeliveryTime: c.fixedDeliveryTime,
-        status: 'Pending' 
+    .map(c => ({
+      companyId: c.companyId,
+      companyName: c.name,
+      address: c.address,
+      postCode: c.postCode || '',
+      area: c.area,
+      fixedDeliveryTime: c.fixedDeliveryTime,
+      status: 'Pending'
     }));
 };

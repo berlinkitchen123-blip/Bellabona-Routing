@@ -10,10 +10,10 @@ import {
 } from 'firebase/firestore';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { Map as MapLibreMap, NavigationControl, AttributionControl, Marker, Popup, LngLatBounds } from 'maplibre-gl';
-import { db } from './firebase';
-import { Company, Order, Tour, PickupTask, BoxStatus, Area, Driver } from './types';
-import { calculateTours, getMissingBoxTasks } from './services/routing';
-import { DRIVERS } from './constants';
+import { db } from './firebase.ts';
+import { Company, Order, Tour, PickupTask, BoxStatus, Area, Driver } from './types.ts';
+import { calculateTours, getMissingBoxTasks } from './services/routing.ts';
+import { DRIVERS } from './constants.ts';
 
 const DRIVER_COLORS: Record<string, { bg: string, border: string, hex: string }> = {
   'samir': { bg: 'bg-amber-500', border: 'border-amber-500', hex: '#f59e0b' },
