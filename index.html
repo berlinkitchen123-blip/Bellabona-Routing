@@ -209,10 +209,13 @@
                 });
                 map.current.addControl(new NavigationControl(), 'top-right');
 
+                // Kitchen Marker REMOVED
+                /*
                 new Marker({ color: '#ef4444', scale: 1.2 })
                     .setLngLat([POTSDAM_KITCHEN.lng, POTSDAM_KITCHEN.lat])
                     .setPopup(new Popup().setText("KITCHEN: " + POTSDAM_KITCHEN.address))
                     .addTo(map.current);
+                */
 
                 return () => { map.current?.remove(); map.current = null; };
             }, []);
@@ -558,6 +561,7 @@
             const [driverAvailability, setDriverAvailability] = useState({});
             const [packerNames, setPackerNames] = useState({});
             const [gridHeight, setGridHeight] = useState(50); // Percentage of screen
+            const [uploadProgress, setUploadProgress] = useState(0); // Progress percentage
 
             // Load driver availability for selected date
             useEffect(() => {
@@ -670,6 +674,7 @@
             };
 
             const processJsonData = async (jsonContent) => {
+                setUploadProgress(1);
                 try {
                     const json = JSON.parse(jsonContent);
                     let orders = Array.isArray(json) ? json : (json.orders || []);
@@ -719,11 +724,17 @@
                     });
 
                     const newTours = await calculateInitialTours(orders);
+                    setUploadProgress(90); // Optimization phase
                     setTours(newTours); // Update UI immediately
                     await saveDailyPlan(newTours);
-                    setShowUpload(false);
+                    setUploadProgress(100);
+                    setTimeout(() => {
+                        setShowUpload(false);
+                        setUploadProgress(0);
+                    }, 500);
                 } catch (err) {
                     alert("Invalid JSON format");
+                    setUploadProgress(0);
                 }
             };
 
@@ -822,7 +833,16 @@
                 const assignedIds = new Set();
 
                 // Geocode orders using Registry as source of truth
+                let processedCount = 0;
+                const totalOrders = orders.length;
+
                 for (const order of orders) {
+                    processedCount++;
+                    // Update progress every 5 orders or so to avoid too many re-renders
+                    if (processedCount % 5 === 0 || processedCount === totalOrders) {
+                        setUploadProgress(Math.floor((processedCount / totalOrders) * 80)); // Geocoding is 80% of the work
+                    }
+
                     if (!order.lat || !order.lng) {
                         // Smart branch matching: "Nike - Mitte" should match "Nike (powered by CBRE)" in Registry
                         let registryEntry = registryRef.current[order.name];
@@ -1009,19 +1029,32 @@
 
                             // Calculate urgency: how much time buffer before deadline
                             const timeUntilDeadline = o.deadlineMinutes - arrivalTime;
-                            const timeUntilEating = o.eatingTimeMinutes - arrivalTime;
 
-                            // Scoring: prioritize urgent deliveries, but also consider distance
-                            // Negative score if we'll be late
+                            // SCORING ALGORITHM - STRICT TIME ADHERENCE
+                            // Priority 1: Meet the Deadline (Urgency)
+                            // Priority 2: Minimize Travel Distance
+
                             let score = 0;
+
                             if (timeUntilDeadline < 0) {
-                                score = -1000 + timeUntilDeadline; // Very bad, already late
-                            } else if (timeUntilEating < 0) {
-                                score = -500 + timeUntilEating; // Bad, past eating time
+                                // LATE: Penalty increases with lateness to minimize it
+                                score = -100000 + timeUntilDeadline;
                             } else {
-                                // Good: combine urgency with proximity
-                                // More urgent = higher score, closer = higher score
-                                score = (100 / (timeUntilDeadline + 1)) - (distance * 2);
+                                // ON TIME:
+                                // To ensure strict sequential time delivery (10:30 before 11:00),
+                                // we heavily weight the deadline time itself.
+                                // We invert the deadline minutes (1440 - deadline) so earlier = higher score.
+                                // Weight: 1 minute of earlier deadline = 100 points
+                                // Distance Weight: 1km = 50 points
+
+                                const deadlineScore = (1440 - o.deadlineMinutes) * 100;
+                                const distancePenalty = distance * 50;
+
+                                // Result: 11:00 deadline (660m) vs 10:30 (630m)
+                                // 10:30 gets +3000 points.
+                                // To override this, the 11:00 stop would need to be 60km closer!
+                                // This enforces strict time sequencing unless it's insanely inefficient.
+                                score = deadlineScore - distancePenalty;
                             }
 
                             if (score > bestScore) {
@@ -1061,6 +1094,7 @@
             };
 
             // Modal Component
+            // Modal Component
             const UploadModal = () => {
                 const [text, setText] = useState("");
                 return (
@@ -1071,16 +1105,34 @@
                             <div className="bg-indigo-900/30 border border-indigo-700 rounded-lg px-4 py-2 mb-4">
                                 <span className="text-xs text-indigo-300 font-bold">📅 Saving to: {selectedDate}</span>
                             </div>
-                            <textarea
-                                className="w-full h-64 bg-slate-950 border border-slate-800 rounded p-4 text-xs font-mono text-slate-300 focus:outline-none focus:border-indigo-500"
-                                placeholder='[ { "name": "Company A", ... }, ... ]'
-                                value={text}
-                                onChange={(e) => setText(e.target.value)}
-                            />
+
+                            {uploadProgress > 0 && uploadProgress < 100 ? (
+                                <div className="mb-4">
+                                    <div className="flex justify-between text-xs text-slate-300 mb-1">
+                                        <span>Processing geography & routes...</span>
+                                        <span>{uploadProgress}%</span>
+                                    </div>
+                                    <div className="w-full bg-slate-800 rounded-full h-2.5">
+                                        <div className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300" style={{ width: `${uploadProgress}%` }}></div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <textarea
+                                    className="w-full h-64 bg-slate-950 border border-slate-800 rounded p-4 text-xs font-mono text-slate-300 focus:outline-none focus:border-indigo-500"
+                                    placeholder='[ { "name": "Company A", ... }, ... ]'
+                                    value={text}
+                                    onChange={(e) => setText(e.target.value)}
+                                />
+                            )}
+
                             <div className="flex justify-end gap-3 mt-4">
                                 <button onClick={() => setShowUpload(false)} className="px-4 py-2 rounded text-slate-400 font-bold hover:text-white transition-colors">Cancel</button>
-                                <button onClick={() => processJsonData(text)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded font-bold transition-colors">
-                                    Process & Save Plan
+                                <button
+                                    onClick={() => processJsonData(text)}
+                                    disabled={uploadProgress > 0 && uploadProgress < 100}
+                                    className={`px-6 py-2 rounded font-bold transition-colors ${uploadProgress > 0 ? 'bg-slate-700 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}
+                                >
+                                    {uploadProgress > 0 && uploadProgress < 100 ? 'Processing...' : 'Process & Save Plan'}
                                 </button>
                             </div>
                         </div>
