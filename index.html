@@ -76,6 +76,11 @@
             cursor: grabbing;
             background: #3730a3;
         }
+
+        .grid-col-driver {
+            min-width: 140px;
+            border-right: 1px solid #334155;
+        }
     </style>
 
     <!-- Error Handler -->
@@ -127,6 +132,7 @@
             collection,
             doc,
             setDoc,
+            getDoc,
             onSnapshot,
             writeBatch
         } from 'firebase/firestore';
@@ -139,16 +145,27 @@
         const POTSDAM_KITCHEN = { lat: 52.3906, lng: 13.0645, address: "Friedrich-Engels-Straße 24, 14473 Potsdam" };
 
         const DRIVERS = [
-            { id: 'samir', name: 'Samir', level: 1, capacity: 14, isActive: true, color: '#f59e0b' },
-            { id: 'ali2', name: 'Ali 2', level: 1, capacity: 8, isActive: true, color: '#10b981' },
-            { id: 'josef', name: 'Jozef', level: 3, capacity: 8, isActive: true, color: '#6366f1' },
-            { id: 'ali1', name: 'Ali 1', level: 3, capacity: 8, isActive: true, color: '#ec4899' },
-            { id: 'ankush', name: 'Ankush', level: 2, capacity: 14, isActive: true, color: '#3b82f6' },
-            { id: 'harsh', name: 'Harsh', level: 4, capacity: 10, isActive: true, color: '#8b5cf6' },
-            { id: 'packtor3', name: 'Packtor 3', level: 4, capacity: 7, isActive: true, color: '#cbd5e1' },
-            { id: 'packator2', name: 'Packtor 2', level: 4, capacity: 7, isActive: true, color: '#94a3b8' },
-            { id: 'packator1', name: 'Packtor 1', level: 4, capacity: 7, isActive: true, color: '#64748b' },
+            { id: 'samir', name: 'Samir', level: 1, capacity: 16, isActive: true, color: '#f59e0b' },
+            { id: 'ali1', name: 'Ali 1', level: 3, capacity: 12, isActive: true, color: '#ec4899' },
+            { id: 'tasnim', name: 'Tasnim', level: 4, capacity: 16, isActive: true, color: '#d946ef' }, // Added Tasnim
+            { id: 'packtor1', name: 'Packator 1', level: 4, capacity: 10, isActive: true, color: '#eab308' }, // Yellowish
+            { id: 'ali2', name: 'Ali 2', level: 1, capacity: 10, isActive: true, color: '#f97316' }, // Orange
+            { id: 'josef', name: 'Jozef', level: 3, capacity: 10, isActive: true, color: '#ef4444' }, // Red-Orange
+            { id: 'packtor2', name: 'Packator 2', level: 4, capacity: 10, isActive: true, color: '#ffff00' }, // Bright Yellow
+            { id: 'ali3', name: 'Ali 3', level: 2, capacity: 12, isActive: true, color: '#f59e0b' }, // Added Ali 3
         ];
+
+        // --- GOLDEN PLAN (From Image) ---
+        const GOLDEN_PLAN = {
+            'samir': ['Ingenierburo', 'Ingenieurbüro', 'Shiftmove', 'Nike', 'King', 'Momox', 'Love', 'Lovehoney', 'Wohnung', 'Team Viewer', 'TeamViewer', 'IFX'],
+            'ali1': ['Probio', 'Isi', 'Mektec', 'Pen', 'PenCef', 'Expert', 'Aignostic', 'Koppla'],
+            'tasnim': ['Hilton', 'alteos', 'Ritual', 'teufel', 'Lautsprecher', 'Degewo-Kurfurstendam', 'Degewo-Kurfürstenstr', 'Kws', 'Almedia', 'Gsport-YUME', 'nexnet', 'unzer', 'Semrush', 'Adyen', 'Tui', 'Office'],
+            'packtor1': ['Core', 'Affinidi', 'Bitpanda', 'Parloa', 'Personio', 'Verve'],
+            'ali2': ['Getranke', 'Getränke', 'Joachim', 'Gottschalk', 'Liquid', 'Giantx', 'Heart', 'Berlin Heart', 'Tib', 'Omicron'],
+            'josef': ['Viessmann', 'Digital', 'Pomelo', 'Gentlemates', 'Leapsome', 'Degewo-Brunnen', 'Bonial', 'Cognita', 'BCL', 'Charles'],
+            'packtor2': ['Bahnhofstr', 'Kayak', 'Omio', 'Mehrower'],
+            'ali3': ['Tam', 'Byrd', 'Taxfix', 'OnCloud', 'On Cloud', 'Beyvers', 'Ellabarowsky', 'Ella-Barowsky']
+        };
 
         // --- FIREBASE INIT ---
         const firebaseConfig = {
@@ -167,7 +184,7 @@
         });
 
         // --- COMPONENTS ---
-        const RouteMap = ({ tours, onGeocodeUpdate }) => {
+        const RouteMap = ({ tours, onGeocodeUpdate, height }) => {
             const mapContainer = useRef(null);
             const map = useRef(null);
             const markersRef = useRef([]);
@@ -222,6 +239,10 @@
             }, [tours]);
 
             useEffect(() => {
+                map.current?.resize();
+            }, [height]);
+
+            useEffect(() => {
                 if (!map.current) return;
                 const m = map.current;
                 markersRef.current.forEach(mk => mk.remove());
@@ -238,6 +259,8 @@
                     // Route Line: Start at Depot -> Orders
                     const coords = [[POTSDAM_KITCHEN.lng, POTSDAM_KITCHEN.lat]];
 
+                    // Sorting by optimization (naive nearest neighbor for visual) is usually done backend
+                    // but here we just respect the array order
                     tour.orders.forEach((o, idx) => {
                         if (o.lng && o.lat) {
                             coords.push([o.lng, o.lat]);
@@ -277,7 +300,7 @@
             return <div ref={mapContainer} className="w-full h-full" />;
         };
 
-        const ExcelView = ({ tours, setTours, unassigned }) => {
+        const GridView = ({ tours, setTours }) => {
             const draggedItem = useRef(null);
             const draggedOverItem = useRef(null);
 
@@ -294,7 +317,6 @@
                 const source = draggedItem.current;
                 const dest = draggedOverItem.current;
                 if (!source || !dest) return;
-                if (source.tourIdx === dest.tourIdx && source.orderIdx === dest.orderIdx) return;
 
                 const newTours = [...tours];
                 const sourceTour = newTours[source.tourIdx];
@@ -303,8 +325,12 @@
                 // Remove from source
                 const [movedOrder] = sourceTour.orders.splice(source.orderIdx, 1);
 
-                // Add to dest
-                destTour.orders.splice(dest.orderIdx, 0, movedOrder);
+                // Add to dest (if dropped on an item, insert before; if assigned to column end, push)
+                if (dest.orderIdx >= destTour.orders.length) {
+                    destTour.orders.push(movedOrder);
+                } else {
+                    destTour.orders.splice(dest.orderIdx, 0, movedOrder);
+                }
 
                 setTours(newTours);
                 draggedItem.current = null;
@@ -312,102 +338,180 @@
             };
 
             return (
-                <div className="overflow-x-auto bg-slate-900 border border-slate-700 rounded-lg shadow-xl">
-                    <table className="w-full excel-grid text-left border-collapse">
-                        <thead>
-                            <tr>
-                                <th style={{ width: '100px' }}>DRIVER</th>
-                                <th style={{ width: '30px' }}>#</th>
-                                <th style={{ width: '150px' }}>COMPANY</th>
-                                <th style={{ width: '200px' }}>ADDRESS</th>
-                                <th style={{ width: '50px' }}>BOX</th>
-                                <th style={{ width: '80px' }}>TIME</th>
-                                <th style={{ width: '60px' }}>POST</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {tours.map((tour, tIdx) => (
-                                <React.Fragment key={tour.driverId}>
+                <div className="flex bg-slate-900 border border-slate-700 h-full overflow-x-auto rounded-lg">
+                    {tours.map((tour, tIdx) => {
+                        const driver = DRIVERS.find(d => d.id === tour.driverId);
+                        return (
+                            <div key={tour.driverId}
+                                className="grid-col-driver flex-1 min-w-[160px] flex flex-col border-r border-slate-700 last:border-r-0"
+                                onDragEnter={(e) => handleDragEnter(e, tIdx, tour.orders.length)}
+                                onDragOver={(e) => e.preventDefault()}
+                                onDrop={handleDrop}
+                            >
+                                <div className="p-2 border-b border-slate-700 text-center font-bold text-sm" style={{ backgroundColor: driver?.color, color: '#000' }}>
+                                    {driver?.name}
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-1 space-y-1">
                                     {tour.orders.map((order, oIdx) => (
-                                        <tr key={order.id}
+                                        <div key={order.id}
                                             draggable
                                             onDragStart={(e) => handleDragStart(e, tIdx, oIdx)}
-                                            onDragEnter={(e) => handleDragEnter(e, tIdx, oIdx)}
-                                            onDragEnd={handleDrop}
+                                            onDragEnter={(e) => { e.stopPropagation(); handleDragEnter(e, tIdx, oIdx); }}
                                             onDragOver={(e) => e.preventDefault()}
-                                            className="draggable-item cursor-move"
+                                            className="bg-slate-800 p-2 rounded text-xs border border-slate-600 cursor-move hover:bg-slate-700 draggable-item relative group"
                                         >
-                                            {oIdx === 0 && (
-                                                <td rowSpan={tour.orders.length} style={{ fontWeight: 900, color: DRIVERS.find(d => d.id === tour.driverId)?.color }}>
-                                                    {tour.driverName.toUpperCase()}
-                                                </td>
-                                            )}
-                                            <td className="text-center">{oIdx + 1}</td>
-                                            <td className="font-bold">{order.name}</td>
-                                            <td title={order.address}>{order.address}</td>
-                                            <td className="text-center">{order.boxes}</td>
-                                            <td>{order.deliverySlotStart} - {order.deliverySlotEnd}</td>
-                                            <td>{order.postCode}</td>
-                                        </tr>
+                                            <div className="font-bold truncate">{order.name}</div>
+                                            <div className="text-[10px] text-slate-400 truncate">{order.address?.split(',')[0]}</div>
+                                            <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 bg-black/50 rounded px-1 text-[8px]">{order.boxes}bx</div>
+                                        </div>
                                     ))}
                                     {tour.orders.length === 0 && (
-                                        <tr>
-                                            <td style={{ fontWeight: 900, color: DRIVERS.find(d => d.id === tour.driverId)?.color }}>{tour.driverName.toUpperCase()}</td>
-                                            <td colSpan="6" className="text-center italic opacity-50">No orders assigned</td>
-                                        </tr>
+                                        <div className="text-center text-slate-600 text-xs italic mt-4">Empty</div>
                                     )}
-                                </React.Fragment>
-                            ))}
-                        </tbody>
-                    </table>
+                                </div>
+                                <div className="p-2 border-t border-slate-700 text-[10px] text-center text-slate-400">
+                                    {tour.orders.length} stops
+                                </div>
+                            </div>
+                        );
+                    })}
                 </div>
             );
         };
 
-        function App() {
-            const [tours, setTours] = useState([]);
-            const [unassigned, setUnassigned] = useState([]);
-            const [isCalculated, setIsCalculated] = useState(false);
+        const RegistryView = () => {
+            const [registry, setRegistry] = useState({});
 
             useEffect(() => {
-                // Auto-calculate on load with injected data
-                if (window.DEFAULT_ORDERS && !isCalculated) {
+                // Load from localStorage or mock
+                const saved = localStorage.getItem('company_registry');
+                if (saved) setRegistry(JSON.parse(saved));
+                else {
+                    // Init with some defaults
+                    setRegistry({
+                        "Probio 8": { address: "Goethestraße 54, 13086 Berlin" },
+                        "Isi": { address: "Nonnendammallee 104, 13629 Berlin" }
+                    });
+                }
+            }, []);
+
+            const save = (newReg) => {
+                setRegistry(newReg);
+                localStorage.setItem('company_registry', JSON.stringify(newReg));
+            };
+
+            return (
+                <div className="p-8 text-white">
+                    <h2 className="text-2xl font-bold mb-4">Company Registry (Address Book)</h2>
+                    <p className="mb-4 text-slate-400">Manage customer addresses here. These are used for geocoding and routing.</p>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        {Object.entries(registry).map(([name, data]) => (
+                            <div key={name} className="bg-slate-800 p-4 rounded border border-slate-600">
+                                <input className="bg-transparent font-bold w-full mb-2 border-b border-slate-600 focus:outline-none" defaultValue={name} />
+                                <input
+                                    className="bg-slate-900 w-full p-2 rounded text-sm text-slate-300"
+                                    defaultValue={data.address}
+                                    onChange={(e) => {
+                                        const newReg = { ...registry, [name]: { ...data, address: e.target.value } };
+                                        save(newReg);
+                                    }}
+                                />
+                            </div>
+                        ))}
+                    </div>
+                    <button className="mt-4 bg-indigo-600 px-4 py-2 rounded font-bold" onClick={() => {
+                        const name = prompt("Enter Company Name");
+                        if (name) save({ ...registry, [name]: { address: "" } });
+                    }}>+ Add New Company</button>
+                </div>
+            )
+        }
+
+        function App() {
+            const [tours, setTours] = useState([]);
+            const [view, setView] = useState('grid'); // 'grid' (new image style) or 'map' or 'registry'
+            const [loading, setLoading] = useState(false);
+
+            useEffect(() => {
+                if (window.DEFAULT_ORDERS) {
                     calculateInitialTours(window.DEFAULT_ORDERS);
                 }
             }, []);
 
+            const handleFileUpload = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const json = JSON.parse(event.target.result);
+                        // Normalize format if needed (assume list of objects)
+                        let orders = Array.isArray(json) ? json : (json.orders || []);
+
+                        // Simple normalization
+                        orders = orders.map(o => ({
+                            id: o.id || Math.random().toString(36),
+                            name: o.name || "Unknown",
+                            address: o.address || "",
+                            postCode: o.postCode || "",
+                            boxes: o.boxes || 1,
+                            deliverySlotStart: o.deliverySlotStart || "09:00",
+                            deliverySlotEnd: o.deliverySlotEnd || "12:00"
+                        }));
+
+                        calculateInitialTours(orders);
+                    } catch (err) {
+                        alert("Invalid JSON file");
+                    }
+                };
+                reader.readAsText(file);
+            };
+
             const calculateInitialTours = (orders) => {
-                // FORCE AVAILABLE: All drivers
-                const activeDrivers = DRIVERS;
+                setLoading(true);
+                // 1. Initialize empty tours
+                const newTours = DRIVERS.map(d => ({ driverId: d.id, driverName: d.name, orders: [] }));
 
-                // Simple Clustering Logic (Postcode/Area based)
-                const newTours = activeDrivers.map(d => ({ driverId: d.id, driverName: d.name, orders: [] }));
+                // 2. Assign based on GOLDEN_PLAN (Fuzzy Match)
+                const unassigned = [];
+                const assignedIds = new Set();
 
-                // Sort orders by postcode for basic clustering
-                const sortedOrders = [...orders].sort((a, b) => a.postCode.localeCompare(b.postCode));
-
-                // Distribute (Greedy Round Robin for now, optimized later)
-                let driverIdx = 0;
-                sortedOrders.forEach(order => {
-                    // Try to find a driver with capacity
+                orders.forEach(order => {
                     let assigned = false;
-                    for (let i = 0; i < activeDrivers.length; i++) {
-                        const d = activeDrivers[(driverIdx + i) % activeDrivers.length];
-                        const tour = newTours.find(t => t.driverId === d.id);
-                        if (tour.orders.length < d.capacity) {
-                            tour.orders.push(order);
-                            driverIdx = (driverIdx + i) % activeDrivers.length; // Stick to this driver for a bit
-                            assigned = true;
-                            break;
+                    for (const [driverId, keywords] of Object.entries(GOLDEN_PLAN)) {
+                        // Check if order name contains any keyword
+                        const match = keywords.some(k => order.name.toLowerCase().includes(k.toLowerCase()));
+                        if (match) {
+                            const tour = newTours.find(t => t.driverId === driverId);
+                            if (tour) {
+                                tour.orders.push(order);
+                                assignedIds.add(order.id);
+                                assigned = true;
+                                break;
+                            }
                         }
                     }
-                    if (!assigned) {
-                        // Unassigned
+                    if (!assigned) unassigned.push(order);
+                });
+
+                // 3. Fallback: Distribute unassigned roughly evenly or by postcode logic
+                let dIdx = 0;
+                unassigned.forEach(order => {
+                    // Try to find tour with capacity
+                    for (let i = 0; i < newTours.length; i++) {
+                        const tour = newTours[(dIdx + i) % newTours.length];
+                        if (tour.orders.length < 20) { // Hard cap for fallback
+                            tour.orders.push(order);
+                            dIdx = (dIdx + 1) % newTours.length;
+                            break;
+                        }
                     }
                 });
 
                 setTours(newTours);
-                setIsCalculated(true);
+                setLoading(false);
             };
 
             const exportToCSV = () => {
@@ -426,48 +530,50 @@
             };
 
             return (
-                <div className="h-screen flex flex-col">
-                    <header className="bg-slate-900 border-b border-slate-700 h-14 flex items-center px-4 justify-between shrink-0">
-                        <div className="flex items-center gap-4">
-                            <h1 className="font-black text-lg tracking-tight">BELLA<span className="text-indigo-500">BONA</span> EXCEL MASTER</h1>
-                            <span className="bg-emerald-500/10 text-emerald-500 text-[10px] font-bold px-2 py-1 rounded border border-emerald-500/20">ORDERS LOADED: {window.DEFAULT_ORDERS?.length || 0}</span>
-                            <span className="bg-amber-500/10 text-amber-500 text-[10px] font-bold px-2 py-1 rounded border border-amber-500/20">DEPOT: POTSDAM</span>
+                <div className="h-screen flex flex-col bg-slate-950">
+                    <header className="bg-slate-900 border-b border-slate-700 h-16 flex items-center px-6 justify-between shrink-0 shadow-lg z-10">
+                        <div className="flex items-center gap-6">
+                            <h1 className="font-black text-xl tracking-tight text-white">BELLA<span className="text-indigo-500">BONA</span> ROT</h1>
+                            <nav className="flex bg-slate-800 p-1 rounded-lg">
+                                <button onClick={() => setView('grid')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${view === 'grid' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>GRID PLAN</button>
+                                <button onClick={() => setView('registry')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${view === 'registry' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>REGISTRY</button>
+                            </nav>
                         </div>
-                        <button onClick={exportToCSV} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded shadow-lg transition-all flex items-center gap-2">
-                            <span>DOWNLOAD EXCEL / CSV</span>
-                        </button>
+                        <div className="flex items-center gap-3">
+                            <label className="cursor-pointer bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold px-3 py-2 rounded border border-slate-600 transition-all">
+                                <span>📂 UPLOAD JSON</span>
+                                <input type="file" accept=".json" onChange={handleFileUpload} className="hidden" />
+                            </label>
+                            <button onClick={exportToCSV} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded shadow transition-all flex items-center gap-2">
+                                <span>DOWNLOAD CSV</span>
+                            </button>
+                        </div>
                     </header>
 
-                    <main className="flex-1 flex overflow-hidden">
-                        {/* LEFT: EXCEL VIEW (Draggable) */}
-                        <div className="w-1/2 flex flex-col border-r border-slate-700 bg-slate-800/50 p-4 overflow-y-auto">
-                            <div className="mb-4 text-xs font-bold text-slate-400 uppercase tracking-widest flex justify-between">
-                                <span>Interactive Schedule (Drag Rows to Reassign)</span>
-                                <span>{tours.reduce((acc, t) => acc + t.orders.length, 0)} Assignments</span>
-                            </div>
-                            <ExcelView tours={tours} setTours={setTours} />
-                        </div>
-
-                        {/* RIGHT: MAP VIEW */}
-                        <div className="w-1/2 relative bg-slate-950">
-                            <RouteMap tours={tours} onGeocodeUpdate={(id, lat, lng) => {
-                                setTours(prev => prev.map(t => ({
-                                    ...t,
-                                    orders: t.orders.map(o => o.id === id ? { ...o, lat, lng } : o)
-                                })));
-                            }} />
-                            <div className="absolute top-4 right-4 bg-slate-900/90 p-4 rounded-xl border border-slate-700 text-xs backdrop-blur-md">
-                                <h3 className="font-bold text-slate-300 mb-2">DRIVER LEGEND</h3>
-                                <div className="space-y-1">
-                                    {DRIVERS.map(d => (
-                                        <div key={d.id} className="flex items-center gap-2">
-                                            <div className="w-3 h-3 rounded-full" style={{ background: d.color }}></div>
-                                            <span className="text-slate-400">{d.name} ({d.capacity} cap)</span>
-                                        </div>
-                                    ))}
+                    <main className="flex-1 flex overflow-hidden relative">
+                        {/* Map Background (Always rendered for persistence, hidden via z-index if needed? No, user wants split or full. Let's do Split 40/60 for Grid View) */}
+                        {view === 'grid' && (
+                            <div className="w-full h-full flex flex-col">
+                                <div className="h-[60%] border-b border-slate-700">
+                                    <RouteMap tours={tours} height={600} onGeocodeUpdate={(id, lat, lng) => {
+                                        setTours(prev => prev.map(t => ({
+                                            ...t,
+                                            orders: t.orders.map(o => o.id === id ? { ...o, lat, lng } : o)
+                                        })));
+                                    }} />
+                                    {/* Floating Stats */}
+                                    <div className="absolute top-4 left-4 bg-slate-900/90 text-white p-3 rounded border border-white/10 backdrop-blur text-xs">
+                                        <div className="font-bold text-slate-400 mb-1">TOTAL ORDERS</div>
+                                        <div className="text-2xl font-black">{tours.reduce((acc, t) => acc + t.orders.length, 0)}</div>
+                                    </div>
+                                </div>
+                                <div className="h-[40%] bg-slate-900 p-2">
+                                    <GridView tours={tours} setTours={setTours} />
                                 </div>
                             </div>
-                        </div>
+                        )}
+
+                        {view === 'registry' && <div className="w-full h-full overflow-y-auto"><RegistryView /></div>}
                     </main>
                 </div>
             );
