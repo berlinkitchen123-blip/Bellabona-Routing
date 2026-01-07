@@ -815,18 +815,10 @@
                 return () => unsubscribe();
             }, []);
 
-            // Load registry for address lookup
+            // Sync registry state to ref for geocoding
             useEffect(() => {
-                const unsubscribe = onSnapshot(collection(db, "registry"), (snapshot) => {
-                    const reg = {};
-                    snapshot.forEach(doc => {
-                        reg[doc.id] = doc.data();
-                    });
-                    registryRef.current = reg;
-                    console.log("Registry loaded:", Object.keys(reg).length, "companies");
-                });
-                return () => unsubscribe();
-            }, []);
+                registryRef.current = registry;
+            }, [registry]);
 
             // Geocode an address and cache the result
             const geocodeAddress = async (address, companyName) => {
