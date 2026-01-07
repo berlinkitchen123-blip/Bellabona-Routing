@@ -60,6 +60,7 @@
             console.error("Critical Error:", error);
             return false;
         };
+        console.log("System initializing...");
     </script>
 
     <script type="importmap">
@@ -79,7 +80,7 @@
 <body class="bg-slate-950 text-slate-200">
     <div id="root"></div>
 
-    <script type="text/babel" data-presets="react,typescript" data-type="module">
+    <script type="text/babel" data-presets="react" data-type="module">
         import React, { useState, useEffect, useMemo, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
         import * as firebaseApp from 'firebase/app';
@@ -98,7 +99,9 @@
         import { GoogleGenerativeAI } from '@google/generative-ai';
         import { Map as MapLibreMap, NavigationControl, AttributionControl, Marker, Popup, LngLatBounds } from 'maplibre-gl';
 
-        // --- ENUMS & TYPES ---
+        console.log("Modules loaded. Starting app...");
+
+        // --- ENUMS & TYPES (Converted to JS Objects) ---
         const Area = {
             PANKOW: 'Pankow',
             PRENZLAUER_BERG: 'Prenzlauer Berg',
