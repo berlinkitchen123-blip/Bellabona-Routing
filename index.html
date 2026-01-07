@@ -147,15 +147,14 @@
         const DRIVERS = [
             { id: 'samir', name: 'Samir', level: 1, capacity: 16, isActive: true, color: '#f59e0b' },
             { id: 'ali1', name: 'Ali 1', level: 3, capacity: 12, isActive: true, color: '#ec4899' },
-            { id: 'tasnim', name: 'Tasnim', level: 4, capacity: 16, isActive: true, color: '#d946ef' }, // Added Tasnim
-            { id: 'packtor1', name: 'Packator 1', level: 4, capacity: 10, isActive: true, color: '#eab308' }, // Yellowish
-            { id: 'ali2', name: 'Ali 2', level: 1, capacity: 10, isActive: true, color: '#f97316' }, // Orange
-            { id: 'josef', name: 'Jozef', level: 3, capacity: 10, isActive: true, color: '#ef4444' }, // Red-Orange
-            { id: 'packtor2', name: 'Packator 2', level: 4, capacity: 10, isActive: true, color: '#ffff00' }, // Bright Yellow
-            { id: 'ali3', name: 'Ali 3', level: 2, capacity: 12, isActive: true, color: '#f59e0b' }, // Added Ali 3
+            { id: 'tasnim', name: 'Tasnim', level: 4, capacity: 16, isActive: true, color: '#d946ef' },
+            { id: 'packtor1', name: 'Packator 1', level: 4, capacity: 10, isActive: true, color: '#eab308' },
+            { id: 'ali2', name: 'Ali 2', level: 1, capacity: 10, isActive: true, color: '#f97316' },
+            { id: 'josef', name: 'Jozef', level: 3, capacity: 10, isActive: true, color: '#ef4444' },
+            { id: 'packtor2', name: 'Packator 2', level: 4, capacity: 10, isActive: true, color: '#ffff00' },
+            { id: 'ali3', name: 'Ali 3', level: 2, capacity: 12, isActive: true, color: '#f59e0b' },
         ];
 
-        // --- GOLDEN PLAN (From Image) ---
         const GOLDEN_PLAN = {
             'samir': ['Ingenierburo', 'Ingenieurbüro', 'Shiftmove', 'Nike', 'King', 'Momox', 'Love', 'Lovehoney', 'Wohnung', 'Team Viewer', 'TeamViewer', 'IFX'],
             'ali1': ['Probio', 'Isi', 'Mektec', 'Pen', 'PenCef', 'Expert', 'Aignostic', 'Koppla'],
@@ -167,7 +166,6 @@
             'ali3': ['Tam', 'Byrd', 'Taxfix', 'OnCloud', 'On Cloud', 'Beyvers', 'Ellabarowsky', 'Ella-Barowsky']
         };
 
-        // --- FIREBASE INIT ---
         const firebaseConfig = {
             apiKey: "AIzaSyBCljwsTQ-PHm20VP-i8VByNrRwVFgMl5I",
             authDomain: "routing-4aab8.firebaseapp.com",
@@ -184,11 +182,17 @@
         });
 
         // --- COMPONENTS ---
-        const RouteMap = ({ tours, onGeocodeUpdate, height }) => {
+        const RouteMap = ({ tours, onGeocodeUpdate, height, onOrderMove }) => {
             const mapContainer = useRef(null);
             const map = useRef(null);
             const markersRef = useRef([]);
             const processingRef = useRef(new Set());
+
+            useEffect(() => {
+                window.handleMoveOrder = (orderId, driverId) => {
+                    onOrderMove(orderId, driverId);
+                };
+            }, [onOrderMove]);
 
             useEffect(() => {
                 if (map.current || !mapContainer.current) return;
@@ -201,7 +205,6 @@
                 });
                 map.current.addControl(new NavigationControl(), 'top-right');
 
-                // Add Depot Marker
                 new Marker({ color: '#ef4444', scale: 1.2 })
                     .setLngLat([POTSDAM_KITCHEN.lng, POTSDAM_KITCHEN.lat])
                     .setPopup(new Popup().setText("KITCHEN: " + POTSDAM_KITCHEN.address))
@@ -211,7 +214,6 @@
             }, []);
 
             useEffect(() => {
-                // Geocoding Queue
                 const queue = tours.flatMap(t => t.orders.filter(o => !o.lat && !processingRef.current.has(o.id)));
                 if (queue.length === 0) return;
 
@@ -220,7 +222,6 @@
                     if (!order) return;
                     processingRef.current.add(order.id);
 
-                    // Use Address first, then fallback to name
                     const query = order.address ? `${order.address}, Berlin, Germany` : `${order.name}, Berlin, Germany`;
                     try {
                         const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`, {
@@ -230,10 +231,8 @@
                         if (data && data.length > 0) {
                             onGeocodeUpdate(order.id, parseFloat(data[0].lat), parseFloat(data[0].lon));
                         }
-                    } catch (e) {
-                        // console.error("Geocode failed", e);
-                    }
-                    setTimeout(process, 1200); // Rate limit
+                    } catch (e) { }
+                    setTimeout(process, 1200);
                 };
                 process();
             }, [tours]);
@@ -250,29 +249,45 @@
 
                 const features = [];
                 const bounds = new LngLatBounds();
-                bounds.extend([POTSDAM_KITCHEN.lng, POTSDAM_KITCHEN.lat]); // Include depot
+                bounds.extend([POTSDAM_KITCHEN.lng, POTSDAM_KITCHEN.lat]);
 
                 tours.forEach(tour => {
                     const driver = DRIVERS.find(d => d.id === tour.driverId);
                     const color = driver ? driver.color : '#cbd5e1';
 
-                    // Route Line: Start at Depot -> Orders
                     const coords = [[POTSDAM_KITCHEN.lng, POTSDAM_KITCHEN.lat]];
 
-                    // Sorting by optimization (naive nearest neighbor for visual) is usually done backend
-                    // but here we just respect the array order
                     tour.orders.forEach((o, idx) => {
                         if (o.lng && o.lat) {
                             coords.push([o.lng, o.lat]);
                             bounds.extend([o.lng, o.lat]);
 
-                            // Marker
                             const el = document.createElement('div');
-                            el.innerHTML = `<div style="background:${color};width:20px;height:20px;border-radius:50%;border:2px solid black;color:white;font-weight:bold;font-size:10px;display:flex;justify-content:center;align-items:center;">${idx + 1}</div>`;
+                            el.innerHTML = `<div style="background:${color};width:24px;height:24px;border-radius:50%;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.5);color:white;font-weight:bold;font-size:12px;display:flex;justify-content:center;align-items:center;cursor:pointer;">${idx + 1}</div>`;
+
+                            const driverOptions = DRIVERS.map(d =>
+                                `<option value="${d.id}" ${d.id === tour.driverId ? 'selected' : ''}>${d.name}</option>`
+                            ).join('');
+
+                            const popupContent = `
+                                <div style="font-family:'Inter',sans-serif; min-width:200px;">
+                                    <h3 style="font-weight:bold;margin-bottom:4px;">${o.name}</h3>
+                                    <p style="font-size:11px;color:#64748b;margin-bottom:8px;">${o.address}</p>
+                                    <div style="font-size:11px;font-weight:bold;margin-bottom:8px;">
+                                        📦 ${o.boxes} Boxes | 🍽️ ${o.dishes || '?'} Dishes
+                                    </div>
+                                    <div style="background:#f1f5f9;padding:8px;border-radius:6px;">
+                                        <label style="font-size:10px;font-weight:bold;display:block;margin-bottom:4px;color:#475569;">MOVE TO DRIVER:</label>
+                                        <select onchange="window.handleMoveOrder('${o.id}', this.value)" style="width:100%;padding:4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;">
+                                            ${driverOptions}
+                                        </select>
+                                    </div>
+                                </div>
+                            `;
 
                             const marker = new Marker({ element: el })
                                 .setLngLat([o.lng, o.lat])
-                                .setPopup(new Popup().setHTML(`<b>${o.name}</b><br>${o.address}`))
+                                .setPopup(new Popup({ maxWidth: '300px' }).setHTML(popupContent))
                                 .addTo(m);
                             markersRef.current.push(marker);
                         }
@@ -291,10 +306,12 @@
                     m.getSource('routes').setData({ type: 'FeatureCollection', features });
                 } else if (m.isStyleLoaded()) {
                     m.addSource('routes', { type: 'geojson', data: { type: 'FeatureCollection', features } });
-                    m.addLayer({ id: 'routes-line', type: 'line', source: 'routes', paint: { 'line-color': ['get', 'color'], 'line-width:': 4, 'line-opacity': 0.8 } });
+                    // THICK GLOW AND SOLID CORE
+                    m.addLayer({ id: 'routes-glow', type: 'line', source: 'routes', paint: { 'line-color': ['get', 'color'], 'line-width': 8, 'line-opacity': 0.4, 'line-blur': 2 } });
+                    m.addLayer({ id: 'routes-line', type: 'line', source: 'routes', paint: { 'line-color': ['get', 'color'], 'line-width': 3, 'line-opacity': 1 } });
                 }
 
-                if (!bounds.isEmpty()) m.fitBounds(bounds, { padding: 50 });
+                if (!bounds.isEmpty()) m.fitBounds(bounds, { padding: 80 });
             }, [tours]);
 
             return <div ref={mapContainer} className="w-full h-full" />;
@@ -322,10 +339,8 @@
                 const sourceTour = newTours[source.tourIdx];
                 const destTour = newTours[dest.tourIdx];
 
-                // Remove from source
                 const [movedOrder] = sourceTour.orders.splice(source.orderIdx, 1);
 
-                // Add to dest (if dropped on an item, insert before; if assigned to column end, push)
                 if (dest.orderIdx >= destTour.orders.length) {
                     destTour.orders.push(movedOrder);
                 } else {
@@ -360,9 +375,12 @@
                                             onDragOver={(e) => e.preventDefault()}
                                             className="bg-slate-800 p-2 rounded text-xs border border-slate-600 cursor-move hover:bg-slate-700 draggable-item relative group"
                                         >
-                                            <div className="font-bold truncate">{order.name}</div>
+                                            <div className="font-bold truncate" title={order.name}>{order.name}</div>
                                             <div className="text-[10px] text-slate-400 truncate">{order.address?.split(',')[0]}</div>
-                                            <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 bg-black/50 rounded px-1 text-[8px]">{order.boxes}bx</div>
+                                            <div className="flex gap-2 mt-1">
+                                                <span className="bg-slate-700 px-1 rounded text-[9px] text-slate-300">📦 {order.boxes}</span>
+                                                <span className="bg-indigo-900 px-1 rounded text-[9px] text-indigo-300">🍽️ {order.dishes || '?'}</span>
+                                            </div>
                                         </div>
                                     ))}
                                     {tour.orders.length === 0 && (
@@ -383,11 +401,9 @@
             const [registry, setRegistry] = useState({});
 
             useEffect(() => {
-                // Load from localStorage or mock
                 const saved = localStorage.getItem('company_registry');
                 if (saved) setRegistry(JSON.parse(saved));
                 else {
-                    // Init with some defaults
                     setRegistry({
                         "Probio 8": { address: "Goethestraße 54, 13086 Berlin" },
                         "Isi": { address: "Nonnendammallee 104, 13629 Berlin" }
@@ -430,7 +446,7 @@
 
         function App() {
             const [tours, setTours] = useState([]);
-            const [view, setView] = useState('grid'); // 'grid' (new image style) or 'map' or 'registry'
+            const [view, setView] = useState('grid');
             const [loading, setLoading] = useState(false);
 
             useEffect(() => {
@@ -438,6 +454,29 @@
                     calculateInitialTours(window.DEFAULT_ORDERS);
                 }
             }, []);
+
+            const handleOrderMove = (orderId, targetDriverId) => {
+                const newTours = [...tours];
+                let movedOrder = null;
+
+                // Find and remove order
+                newTours.forEach(tour => {
+                    const idx = tour.orders.findIndex(o => o.id === orderId);
+                    if (idx !== -1) {
+                        movedOrder = tour.orders.splice(idx, 1)[0];
+                    }
+                });
+
+                // Add to target driver
+                if (movedOrder && targetDriverId) {
+                    const targetTour = newTours.find(t => t.driverId === targetDriverId);
+                    if (targetTour) {
+                        targetTour.orders.push(movedOrder);
+                    }
+                }
+
+                setTours(newTours);
+            };
 
             const handleFileUpload = (e) => {
                 const file = e.target.files[0];
@@ -447,16 +486,15 @@
                 reader.onload = (event) => {
                     try {
                         const json = JSON.parse(event.target.result);
-                        // Normalize format if needed (assume list of objects)
                         let orders = Array.isArray(json) ? json : (json.orders || []);
 
-                        // Simple normalization
                         orders = orders.map(o => ({
                             id: o.id || Math.random().toString(36),
                             name: o.name || "Unknown",
                             address: o.address || "",
                             postCode: o.postCode || "",
                             boxes: o.boxes || 1,
+                            dishes: o.dishes || 0, // Ensure dish count is handled
                             deliverySlotStart: o.deliverySlotStart || "09:00",
                             deliverySlotEnd: o.deliverySlotEnd || "12:00"
                         }));
@@ -471,17 +509,14 @@
 
             const calculateInitialTours = (orders) => {
                 setLoading(true);
-                // 1. Initialize empty tours
                 const newTours = DRIVERS.map(d => ({ driverId: d.id, driverName: d.name, orders: [] }));
 
-                // 2. Assign based on GOLDEN_PLAN (Fuzzy Match)
                 const unassigned = [];
                 const assignedIds = new Set();
 
                 orders.forEach(order => {
                     let assigned = false;
                     for (const [driverId, keywords] of Object.entries(GOLDEN_PLAN)) {
-                        // Check if order name contains any keyword
                         const match = keywords.some(k => order.name.toLowerCase().includes(k.toLowerCase()));
                         if (match) {
                             const tour = newTours.find(t => t.driverId === driverId);
@@ -496,13 +531,11 @@
                     if (!assigned) unassigned.push(order);
                 });
 
-                // 3. Fallback: Distribute unassigned roughly evenly or by postcode logic
                 let dIdx = 0;
                 unassigned.forEach(order => {
-                    // Try to find tour with capacity
                     for (let i = 0; i < newTours.length; i++) {
                         const tour = newTours[(dIdx + i) % newTours.length];
-                        if (tour.orders.length < 20) { // Hard cap for fallback
+                        if (tour.orders.length < 20) {
                             tour.orders.push(order);
                             dIdx = (dIdx + 1) % newTours.length;
                             break;
@@ -515,10 +548,10 @@
             };
 
             const exportToCSV = () => {
-                let csv = "Driver,Stop Number,Company,Address,Postal Code,Boxes\n";
+                let csv = "Driver,Stop Number,Company,Address,Postal Code,Boxes,Dishes\n";
                 tours.forEach(t => {
                     t.orders.forEach((o, i) => {
-                        csv += `${t.driverName},${i + 1},"${o.name}","${o.address}",${o.postCode},${o.boxes}\n`;
+                        csv += `${t.driverName},${i + 1},"${o.name}","${o.address}",${o.postCode},${o.boxes},${o.dishes || 0}\n`;
                     });
                 });
                 const blob = new Blob([csv], { type: 'text/csv' });
@@ -551,18 +584,16 @@
                     </header>
 
                     <main className="flex-1 flex overflow-hidden relative">
-                        {/* Map Background (Always rendered for persistence, hidden via z-index if needed? No, user wants split or full. Let's do Split 40/60 for Grid View) */}
                         {view === 'grid' && (
                             <div className="w-full h-full flex flex-col">
-                                <div className="h-[60%] border-b border-slate-700">
-                                    <RouteMap tours={tours} height={600} onGeocodeUpdate={(id, lat, lng) => {
+                                <div className="h-[60%] border-b border-slate-700 relative group">
+                                    <RouteMap tours={tours} height={600} onOrderMove={handleOrderMove} onGeocodeUpdate={(id, lat, lng) => {
                                         setTours(prev => prev.map(t => ({
                                             ...t,
                                             orders: t.orders.map(o => o.id === id ? { ...o, lat, lng } : o)
                                         })));
                                     }} />
-                                    {/* Floating Stats */}
-                                    <div className="absolute top-4 left-4 bg-slate-900/90 text-white p-3 rounded border border-white/10 backdrop-blur text-xs">
+                                    <div className="absolute top-4 left-4 bg-slate-900/90 text-white p-3 rounded border border-white/10 backdrop-blur text-xs z-50 pointer-events-none">
                                         <div className="font-bold text-slate-400 mb-1">TOTAL ORDERS</div>
                                         <div className="text-2xl font-black">{tours.reduce((acc, t) => acc + t.orders.length, 0)}</div>
                                     </div>
