@@ -886,6 +886,9 @@
                                 order.lat = coords.lat;
                                 order.lng = coords.lng;
                                 order.address = registryEntry.address;
+                                if (registryEntry.eatingTime) {
+                                    order.registryEatingTime = registryEntry.eatingTime;
+                                }
                             }
                         } else if (order.address) {
                             // Fall back to JSON address if not in Registry
@@ -1022,9 +1025,15 @@
                         const [hours, mins] = (order.deliverySlotEnd || "12:00").split(':').map(Number);
                         order.deadlineMinutes = hours * 60 + mins;
 
-                        // Eating time is typically 30 min after delivery slot end
-                        order.eatingTimeMinutes = order.deadlineMinutes + 30;
+                        // Eating Time: Use Registry value if available, else default to Deadline + 30 mins
+                        if (order.registryEatingTime) {
+                            const [eh, em] = order.registryEatingTime.split(':').map(Number);
+                            order.eatingTimeMinutes = eh * 60 + em;
+                        } else {
+                            order.eatingTimeMinutes = order.deadlineMinutes + 30; // Default
+                        }
                     });
+
 
                     const optimized = [];
                     let currentPos = POTSDAM_KITCHEN;
