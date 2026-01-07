@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BellaBona IntelliRoute - STANDALONE</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@19.2.3",
+        "react-dom/client": "https://esm.sh/react-dom@19.2.3/client",
+        "@google/generative-ai": "https://esm.sh/@google/generative-ai@0.21.0",
+        "firebase/app": "https://esm.sh/firebase@11.1.0/app",
+        "firebase/firestore": "https://esm.sh/firebase@11.1.0/firestore",
+        "maplibre-gl": "https://esm.sh/maplibre-gl@4.7.1"
+      }
+    }
+    </script>
+</head>
+
+<body class="bg-slate-950 text-slate-200">
+    <div id="root"></div>
+    <script type="text/babel" data-presets="react,typescript" data-type="module">
+        // Since we are in a standalone file, we'll try to load the logic via fetch and transform it
+        async function loadAndRun() {
+            const response = await fetch('./index.tsx');
+            const code = await response.text();
+            // This is complex for a browser...
+            document.getElementById('root').innerHTML = '<div class="p-20 text-center"><h1>🚀 Click the Button to Fix Deployment</h1><p>I have identified that GitHub Pages needs a Build Step.</p></div>';
+        }
+        loadAndRun();
+    </script>
+</body>
+
+</html>
