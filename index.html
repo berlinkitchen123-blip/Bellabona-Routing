@@ -147,16 +147,16 @@
         const DRIVERS = [
             { id: 'samir', name: 'Samir', level: 1, capacity: 16, isActive: true, color: '#f59e0b' },
             { id: 'ali1', name: 'Ali 1', level: 1, capacity: 12, isActive: true, color: '#ec4899' },
-            { id: 'ali2', name: 'Ali 2', level: 1, capacity: 10, isActive: true, color: '#f97316' },
-            { id: 'ali3', name: 'Ali 3', level: 3, capacity: 12, isActive: true, color: '#10b981' },
-            { id: 'ali4', name: 'Ali 4', level: 4, capacity: 12, isActive: true, color: '#06b6d4' },
-            { id: 'Josef', name: 'Josef', level: 1, capacity: 12, isActive: true, color: '#00FF00' },
-            { id: 'ankush', name: 'Ankush', level: 3, capacity: 12, isActive: true, color: '#8b5cf6' },
-            { id: 'tasnim', name: 'Tasnim', level: 4, capacity: 16, isActive: true, color: '#d946ef' },
-            { id: 'packtor1', name: 'Packator 1', level: 4, capacity: 10, isActive: true, color: '#eab308' },
-            { id: 'packtor2', name: 'Packator 2', level: 4, capacity: 10, isActive: true, color: '#f43f5e' },
-            { id: 'packtor3', name: 'Packator 3', level: 4, capacity: 10, isActive: true, color: '#84cc16' },
-            { id: 'harsh', name: 'Harsh', level: 2, capacity: 12, isActive: true, color: '#6366f1' },
+            { id: 'ali2', name: 'Ali 2', level: 1, capacity: 10, isActive: true, color: '#ff4500' }, // OrangeRed
+            { id: 'ali3', name: 'Ali 3', level: 2, capacity: 12, isActive: true, color: '#32cd32' }, // LimeGreen
+            { id: 'ali4', name: 'Ali 4', level: 2, capacity: 12, isActive: true, color: '#00ced1' }, // DarkTurquoise
+            { id: 'ankush', name: 'Ankush', level: 3, capacity: 12, isActive: true, color: '#9400d3' }, // DarkViolet
+            { id: 'tasnim', name: 'Tasnim', level: 4, capacity: 16, isActive: true, color: '#ff00ff' }, // Magenta
+            { id: 'packtor1', name: 'Packator 1', level: 4, capacity: 10, isActive: true, color: '#ffd700' }, // Gold
+            { id: 'packtor2', name: 'Packator 2', level: 4, capacity: 10, isActive: true, color: '#dc143c' }, // Crimson
+            { id: 'packtor3', name: 'Packator 3', level: 4, capacity: 10, isActive: true, color: '#adff2f' }, // GreenYellow
+            { id: 'harsh', name: 'Harsh', level: 2, capacity: 12, isActive: true, color: '#4169e1' }, // RoyalBlue
+            { id: 'josef', name: 'Josef', level: 2, capacity: 12, isActive: true, color: '#000080' }, // Navy
         ];
 
         const GOLDEN_PLAN = {
@@ -207,6 +207,7 @@
                     zoom: 10,
                     attributionControl: false
                 });
+                window.mapInstance = map.current; // Expose for GridView interactions
                 map.current.addControl(new NavigationControl(), 'top-right');
 
                 // Kitchen Marker REMOVED
@@ -256,13 +257,14 @@
 
                 const features = [];
                 const bounds = new LngLatBounds();
-                bounds.extend([POTSDAM_KITCHEN.lng, POTSDAM_KITCHEN.lat]);
+                // bounds.extend([POTSDAM_KITCHEN.lng, POTSDAM_KITCHEN.lat]); // Removed to focus on delivery zones
 
                 tours.forEach(tour => {
                     const driver = DRIVERS.find(d => d.id === tour.driverId);
                     const color = driver ? driver.color : '#cbd5e1';
 
-                    const coords = [[POTSDAM_KITCHEN.lng, POTSDAM_KITCHEN.lat]];
+                    // Start route from first order, NOT kitchen
+                    const coords = [];
 
                     tour.orders.forEach((o, idx) => {
                         if (o.lng && o.lat) {
@@ -325,6 +327,12 @@
         };
 
         const GridView = ({ tours, setTours, packerNames, setPackerNames, onSave }) => {
+            const handleOrderClick = (lat, lng, name) => {
+                if (lat && lng && window.mapInstance) {
+                    window.mapInstance.flyTo({ center: [lng, lat], zoom: 14, speed: 1.5 });
+                    // Optional: Trigger popup if we had reference to markers, but flyTo is good enough for now
+                }
+            };
             const draggedItem = useRef(null);
             const draggedOverItem = useRef(null);
 
@@ -386,20 +394,31 @@
                                                 onDragStart={(e) => handleDragStart(e, tIdx, oIdx)}
                                                 onDragEnter={(e) => { e.stopPropagation(); handleDragEnter(e, tIdx, oIdx); }}
                                                 onDragOver={(e) => e.preventDefault()}
-                                                className="bg-slate-800 p-2 rounded text-xs border border-slate-600 cursor-move hover:bg-slate-700 draggable-item relative group"
+                                                onClick={() => handleOrderClick(order.lat, order.lng, order.name)}
+                                                className="bg-slate-800 p-2 rounded text-xs border border-slate-600 cursor-pointer hover:bg-slate-700 draggable-item relative group hover:border-indigo-500 transition-all shadow-sm"
                                             >
-                                                <div className="font-bold truncate" title={order.name}>{order.name}</div>
+                                                <div className="font-bold truncate flex items-center gap-1" title={order.name}>
+                                                    <span className="text-slate-500 text-[10px] w-4">{oIdx + 1}.</span>
+                                                    {order.name}
+                                                </div>
                                                 <div className="text-[10px] text-slate-400 truncate">{order.address?.split(',')[0]}</div>
                                                 <div className="flex gap-2 mt-1 items-center justify-between">
                                                     <div className="flex gap-1">
                                                         <span className="bg-slate-700 px-1 rounded text-[9px] text-slate-300">📦 {order.boxes}</span>
                                                         <span className="bg-indigo-900 px-1 rounded text-[9px] text-indigo-300">🍽️ {order.dishes || '?'}</span>
                                                     </div>
-                                                    {arrivalTime && (
-                                                        <span className={`px-1 rounded text-[9px] font-bold ${isLate ? 'bg-red-900 text-red-300' : 'bg-emerald-900 text-emerald-300'}`}>
-                                                            {isLate ? '⚠️' : '✓'} {arrivalTime}
-                                                        </span>
-                                                    )}
+                                                    <div className="text-right flex flex-col items-end">
+                                                        {order.eatingTimeMinutes && (
+                                                            <span className="text-[9px] text-orange-400 font-mono mb-0.5" title="Eating Time (Deadline + 30m)">
+                                                                🍽️ {Math.floor(order.eatingTimeMinutes / 60)}:{String(order.eatingTimeMinutes % 60).padStart(2, '0')}
+                                                            </span>
+                                                        )}
+                                                        {arrivalTime && (
+                                                            <span className={`px-1 rounded text-[9px] font-bold ${isLate ? 'bg-red-900 text-red-300' : 'bg-emerald-900 text-emerald-300'}`}>
+                                                                {isLate ? '⚠️' : '✓'} {arrivalTime}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
                                         )
