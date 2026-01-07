@@ -665,6 +665,17 @@
                 "nexnet GmbH": { lat: 52.5105, lng: 13.3912 }
             };
 
+            const haversine = (lat1, lon1, lat2, lon2) => {
+                const R = 6371; // km
+                const dLat = (lat2 - lat1) * Math.PI / 180;
+                const dLon = (lon2 - lon1) * Math.PI / 180;
+                const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                return R * c;
+            };
+
             const calculateInitialTours = (orders) => {
                 setLoading(true);
                 const newTours = DRIVERS.map(d => ({ driverId: d.id, driverName: d.name, orders: [] }));
@@ -695,6 +706,12 @@
                     if (!assigned) unassigned.push(order);
                 });
 
+                // Sort unassigned by Postal Code for rough clustering before distribution
+                unassigned.sort((a, b) => {
+                    const zipA = a.postCode || a.address?.match(/\d{5}/)?.[0] || "00000";
+                    const zipB = b.postCode || b.address?.match(/\d{5}/)?.[0] || "00000";
+                    return zipA.localeCompare(zipB);
+                });
 
                 let dIdx = 0;
                 unassigned.forEach(order => {
@@ -706,6 +723,41 @@
                             break;
                         }
                     }
+                });
+
+                // OPTIMIZE ROUTES: Greedy Nearest Neighbor
+                newTours.forEach(tour => {
+                    if (tour.orders.length === 0) return;
+
+                    const optimized = [];
+                    let currentPos = POTSDAM_KITCHEN;
+                    const pool = [...tour.orders];
+
+                    while (pool.length > 0) {
+                        let nearestIdx = -1;
+                        let minDist = Infinity;
+
+                        pool.forEach((o, idx) => {
+                            // If missing coords, treat as far away but valid
+                            if (!o.lat || !o.lng) {
+                                if (minDist > 10000) { minDist = 10000; nearestIdx = idx; }
+                                return;
+                            }
+                            const d = haversine(currentPos.lat, currentPos.lng, o.lat, o.lng);
+                            if (d < minDist) {
+                                minDist = d;
+                                nearestIdx = idx;
+                            }
+                        });
+
+                        // Fallback if no coords found in pool
+                        if (nearestIdx === -1) nearestIdx = 0;
+
+                        const nextStop = pool.splice(nearestIdx, 1)[0];
+                        optimized.push(nextStop);
+                        if (nextStop.lat && nextStop.lng) currentPos = nextStop;
+                    }
+                    tour.orders = optimized;
                 });
 
                 setTours(newTours);
