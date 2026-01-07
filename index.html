@@ -320,7 +320,7 @@
             return <div ref={mapContainer} className="w-full h-full" />;
         };
 
-        const GridView = ({ tours, setTours }) => {
+        const GridView = ({ tours, setTours, packerNames, setPackerNames, onSave }) => {
             const draggedItem = useRef(null);
             const draggedOverItem = useRef(null);
 
@@ -417,7 +417,7 @@
                                             const newPackerNames = { ...packerNames, [tour.driverId]: e.target.value };
                                             setPackerNames(newPackerNames);
                                         }}
-                                        onBlur={() => saveDailyPlan(tours)}
+                                        onBlur={() => onSave(tours)}
                                         className="w-full bg-slate-800 text-slate-300 text-xs px-2 py-1 rounded border border-slate-600 focus:outline-none focus:border-indigo-500"
                                     />
                                 </div>
@@ -1204,7 +1204,13 @@
                                     />
                                 </div>
                                 <div style={{ height: `${100 - gridHeight}%` }} className="bg-slate-900 p-2">
-                                    <GridView tours={tours.filter(t => driverAvailability[t.driverId] !== false)} setTours={setTours} />
+                                    <GridView
+                                        tours={tours.filter(t => driverAvailability[t.driverId] !== false)}
+                                        setTours={setTours}
+                                        packerNames={packerNames}
+                                        setPackerNames={setPackerNames}
+                                        onSave={saveDailyPlan}
+                                    />
                                 </div>
                             </div>
                         )}
