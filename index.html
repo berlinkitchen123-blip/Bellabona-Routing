@@ -718,6 +718,7 @@
                     });
 
                     const newTours = await calculateInitialTours(orders);
+                    setTours(newTours); // Update UI immediately
                     await saveDailyPlan(newTours);
                     setShowUpload(false);
                 } catch (err) {
