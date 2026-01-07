@@ -198,6 +198,8 @@
                 };
             }, [onOrderMove]);
 
+
+
             useEffect(() => {
                 if (map.current || !mapContainer.current) return;
                 map.current = new MapLibreMap({
@@ -615,7 +617,15 @@
                         if (docSnap.exists()) {
                             const data = docSnap.data();
                             if (data.tours) {
-                                setTours(data.tours);
+                                // Ensure all current drivers are in the loaded plan (Migration Fix)
+                                const loadedTours = data.tours;
+                                const mergedTours = [...loadedTours];
+                                DRIVERS.forEach(d => {
+                                    if (!mergedTours.find(t => t.driverId === d.id)) {
+                                        mergedTours.push({ driverId: d.id, driverName: d.name, orders: [] });
+                                    }
+                                });
+                                setTours(mergedTours);
                                 setPackerNames(data.packerNames || {});
                                 console.log("Loaded plan for", selectedDate);
                             }
