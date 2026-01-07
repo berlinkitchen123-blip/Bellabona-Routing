@@ -1185,31 +1185,126 @@
                 };
 
                 return (
-                    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowCalendar(false)}>
-                        <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex items-center justify-between mb-4">
-                                <button onClick={() => setMonth(new Date(month.setMonth(month.getMonth() - 1)))} className="text-white hover:text-indigo-400">◀</button>
-                                <h3 className="text-white font-bold">{month.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</h3>
-                                <button onClick={() => setMonth(new Date(month.setMonth(month.getMonth() + 1)))} className="text-white hover:text-indigo-400">▶</button>
+                    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+                        <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl w-full max-w-sm shadow-2xl">
+                            <div className="flex justify-between items-center mb-4">
+                                <h2 className="text-lg font-bold text-white">Select Date</h2>
+                                <button onClick={() => setShowCalendar(false)} className="text-slate-400 hover:text-white">✕</button>
                             </div>
-                            <div className="grid grid-cols-7 gap-2">
-                                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
-                                    <div key={d} className="text-center text-xs text-slate-400 font-bold p-2">{d}</div>
+                            <div className="flex justify-between mb-4">
+                                <button onClick={() => setMonth(new Date(month.setMonth(month.getMonth() - 1)))} className="text-indigo-400 font-bold">&lt;</button>
+                                <span className="font-bold">{month.toLocaleString('default', { month: 'long', year: 'numeric' })}</span>
+                                <button onClick={() => setMonth(new Date(month.setMonth(month.getMonth() + 1)))} className="text-indigo-400 font-bold">&gt;</button>
+                            </div>
+                            <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                                {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => <div key={d} className="text-xs text-slate-500">{d}</div>)}
+                            </div>
+                            <div className="grid grid-cols-7 gap-1">
+                                {blanks.map((_, i) => <div key={i}></div>)}
+                                {days.map(d => (
+                                    <button
+                                        key={d}
+                                        onClick={() => selectDate(d)}
+                                        className={`p-2 text-sm rounded hover:bg-indigo-900 ${selectedDate === `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+                                                ? 'bg-indigo-600 text-white font-bold'
+                                                : 'text-slate-300'
+                                            }`}
+                                    >
+                                        {d}
+                                    </button>
                                 ))}
-                                {blanks.map((_, i) => <div key={`blank-${i}`} />)}
-                                {days.map(day => {
-                                    const isSelected = selectedDate === `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                                    return (
-                                        <button
-                                            key={day}
-                                            onClick={() => selectDate(day)}
-                                            className={`p-2 rounded text-sm font-bold transition-all ${isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                                                }`}
-                                        >
-                                            {day}
-                                        </button>
-                                    );
-                                })}
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            // Recovery Modal Component
+            const RecoveryModal = ({ onClose }) => {
+                const [pendingCompanies, setPendingCompanies] = useState([]);
+                const [loading, setRecoveryLoading] = useState(true);
+
+                useEffect(() => {
+                    const fetchPending = async () => {
+                        setRecoveryLoading(true);
+                        const today = new Date(selectedDate);
+                        const recentPlans = [];
+                        const companiesWithBoxes = new Map(); // Store company -> date it had boxes
+
+                        // Scan last 3 days
+                        for (let i = 1; i <= 3; i++) {
+                            const d = new Date(today);
+                            d.setDate(today.getDate() - i);
+                            const dateStr = d.toISOString().split('T')[0];
+                            try {
+                                const docSnap = await getDoc(doc(db, "daily_plans", dateStr));
+                                if (docSnap.exists()) {
+                                    const plan = docSnap.data();
+                                    const orders = plan.tours ? plan.tours.flatMap(t => t.orders) : [];
+                                    orders.forEach(o => {
+                                        // We record the LATEST date they ordered
+                                        if (!companiesWithBoxes.has(o.name)) {
+                                            companiesWithBoxes.set(o.name, dateStr);
+                                        }
+                                    });
+                                }
+                            } catch (e) { console.error(e); }
+                        }
+
+                        // Get Today's Companies to exclude
+                        const todaysCompanies = new Set();
+                        tours.forEach(t => t.orders.forEach(o => todaysCompanies.add(o.name)));
+
+                        // Diff
+                        const pending = [];
+                        companiesWithBoxes.forEach((date, name) => {
+                            // If they have boxes from recent days BUT are not ordering today
+                            // Then they likely still have empty boxes to pick up
+                            if (!todaysCompanies.has(name)) {
+                                pending.push({ name, date });
+                            }
+                        });
+
+                        setPendingCompanies(pending);
+                        setRecoveryLoading(false);
+                    };
+                    fetchPending();
+                }, []);
+
+                return (
+                    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+                        <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+                            <div className="flex justify-between items-center mb-4">
+                                <h2 className="text-xl font-bold text-white flex items-center gap-2">📦 Pending Recovery <span className="text-xs bg-indigo-900 text-indigo-300 px-2 py-1 rounded-full">{pendingCompanies.length}</span></h2>
+                                <button onClick={onClose} className="text-slate-400 hover:text-white">✕</button>
+                            </div>
+
+                            <p className="text-slate-400 text-xs mb-4">
+                                These companies ordered in the last 3 days but are <b>not</b> in today's plan. They likely have empty boxes waiting.
+                            </p>
+
+                            {loading ? (
+                                <div className="text-center py-8 text-indigo-400">Scanning history...</div>
+                            ) : (
+                                <div className="overflow-y-auto flex-1 space-y-2 pr-2">
+                                    {pendingCompanies.length === 0 ? (
+                                        <div className="text-center py-8 text-slate-500">✅ All clean! No pending pickups found.</div>
+                                    ) : (
+                                        pendingCompanies.map((c, idx) => (
+                                            <div key={idx} className="bg-slate-800 p-3 rounded flex justify-between items-center border border-slate-700">
+                                                <div>
+                                                    <div className="font-bold text-sm text-white">{c.name}</div>
+                                                    <div className="text-[10px] text-slate-400">Box from: {c.date}</div>
+                                                </div>
+                                                <span className="text-xs bg-orange-900/50 text-orange-300 px-2 py-1 rounded border border-orange-900">Pending</span>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            )}
+
+                            <div className="mt-4 text-right">
+                                <button onClick={onClose} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded text-sm font-bold transition-colors">Close</button>
                             </div>
                         </div>
                     </div>
@@ -1279,40 +1374,69 @@
             };
 
             return (
-                <div className="h-screen flex flex-col bg-slate-950">
-                    {showUpload && <UploadModal />}
-                    {showCalendar && <CalendarModal />}
-                    {showDriverDropdown && <DriverAvailabilityModal />}
-                    <header className="bg-slate-900 border-b border-slate-700 h-16 flex items-center px-6 justify-between shrink-0 shadow-lg z-10">
-                        <div className="flex items-center gap-6">
-                            <h1 className="font-black text-xl tracking-tight text-white">BELLA<span className="text-indigo-500">BONA</span> ROT</h1>
-                            <nav className="flex bg-slate-800 p-1 rounded-lg">
-                                <button onClick={() => setView('grid')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${view === 'grid' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>GRID PLAN</button>
-                                <button onClick={() => setView('registry')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${view === 'registry' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>REGISTRY</button>
-                            </nav>
+                <div className="flex flex-col h-screen text-slate-200 font-sans">
+                    {/* Header */}
+                    <div className="h-14 bg-slate-900 border-b border-slate-700 flex items-center justify-between px-4">
+                        <div className="flex items-center gap-4">
+                            <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">
+                                BellaBona Routing
+                            </h1>
+                            <div className="flex bg-slate-800 rounded-lg p-1 gap-1">
+                                <button
+                                    onClick={() => setView('grid')}
+                                    className={`px-3 py-1 rounded text-xs font-bold transition-all ${view === 'grid' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                                >
+                                    GRID
+                                </button>
+                                <button
+                                    onClick={() => setView('registry')}
+                                    className={`px-3 py-1 rounded text-xs font-bold transition-all ${view === 'registry' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                                >
+                                    REGISTRY
+                                </button>
+                            </div>
                         </div>
+
                         <div className="flex items-center gap-3">
+                            <div className="flex items-center bg-slate-800 rounded px-3 py-1.5 border border-slate-700 text-sm gap-2">
+                                <span className="text-slate-400">📅</span>
+                                <span className="font-mono font-bold">{selectedDate}</span>
+                                <button onClick={() => setShowCalendar(true)} className="ml-2 text-xs bg-indigo-900/50 hover:bg-indigo-900 text-indigo-300 px-2 py-0.5 rounded transition-colors">
+                                    CHANGE
+                                </button>
+                            </div>
+
                             <button
-                                onClick={() => setShowCalendar(true)}
-                                className="flex items-center gap-2 bg-slate-800 px-3 py-2 rounded border border-slate-600 hover:border-indigo-500 transition-colors cursor-pointer"
+                                onClick={() => setShowRecovery(true)}
+                                className="bg-orange-900/30 border border-orange-700/50 hover:bg-orange-900/50 text-orange-200 px-3 py-1.5 rounded text-sm font-bold transition-all flex items-center gap-2"
                             >
-                                <span className="text-xs text-slate-400 font-bold">📅</span>
-                                <span className="text-slate-300 text-xs font-mono">{selectedDate}</span>
+                                <span>📦 RECOVERY</span>
                             </button>
+
                             <button
                                 onClick={() => setShowDriverDropdown(true)}
-                                className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold px-3 py-2 rounded border border-slate-600 transition-colors flex items-center gap-2"
+                                className="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-300 px-3 py-1.5 rounded text-sm font-bold transition-all flex items-center gap-2"
                             >
                                 <span>🚗 DRIVERS</span>
                             </button>
-                            <button onClick={() => setShowUpload(true)} className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold px-3 py-2 rounded border border-slate-600 transition-colors flex items-center gap-2">
-                                <span>📤 UPLOAD / PASTE JSON</span>
+
+                            <button
+                                onClick={() => setShowUpload(true)}
+                                className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded text-sm font-bold shadow-lg shadow-indigo-900/20 transition-all flex items-center gap-2"
+                            >
+                                <span>☁️ UPLOAD PLAN</span>
                             </button>
                             <button onClick={exportToCSV} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded shadow transition-all flex items-center gap-2">
                                 <span>DOWNLOAD CSV</span>
                             </button>
                         </div>
-                    </header>
+                    </div>
+
+                    {/* MODALS */}
+                    {showUpload && <UploadModal />}
+                    {showCalendar && <CalendarModal />}
+                    {showDriverDropdown && <DriverAvailabilityModal />}
+                    {showRecovery && <RecoveryModal onClose={() => setShowRecovery(false)} />}
 
                     <main className="flex-1 flex overflow-hidden relative">
                         {view === 'grid' && (
