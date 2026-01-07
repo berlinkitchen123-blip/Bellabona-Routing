@@ -399,20 +399,80 @@
 
         const RegistryView = () => {
             const [registry, setRegistry] = useState({});
+            const processingRef = useRef(false);
+
+            const DEFAULT_REGISTRY = {
+                "Adyen N.V. Berlin": "Brückenstraße 5, 10179 Berlin",
+                "Aignostics GmbH": "Invalidenstraße 112, 10115 Berlin",
+                "Almeida GmbH": "Oranienburger Str. 86, 10178 Berlin",
+                "Alteos GmbH": "Rotherstraße 19, 10245 Berlin",
+                "Bahnhofstr - degewo": "Bahnhofstraße 23, 12555 Berlin",
+                "Berlin Heart": "Wiesenweg 10, 12247 Berlin",
+                "Beyvers GmbH Produktion": "Sperenberger Str. 5, 12277 Berlin",
+                "Beyvers GmbH Verwaltung": "Sperenberger Str. 5, 12277 Berlin",
+                "Bitpanda - German Branch": "Oberwallstraße 6, 10117 Berlin",
+                "Bonial International - bonial.com": "Hussitenstraße 32-33, 13355 Berlin",
+                "Brunnenstr - degewo": "Brunnenstraße 128, 13355 Berlin",
+                "Cognita Deutschland GmbH": "Friedrichstraße 140, 10117 Berlin",
+                "Getränke Hoffmann GmbH": "Am Weidendamm 1, 15831 Blankenfelde-Mahlow",
+                "Halle 2 Küche - iSi Automotive Berlin": "Nonnendammallee 104, 13629 Berlin",
+                "Halle 3 Küche - iSi Automotive Berlin": "Nonnendammallee 104, 13629 Berlin",
+                "Ingenieurbüro Rüdiger Jockwer GmbH": "Bülowstraße 66, 10783 Berlin",
+                "KWS Berlin GmbH": "Potsdamer Platz 10, 10785 Berlin",
+                "Kayak Germany GmbH": "Strausberger Pl. 1, 10243 Berlin",
+                "Koppla GmbH": "Charlottenstraße 2, 10969 Berlin",
+                "Kurfürstenstr - degewo": "Kurfürstenstraße 58, 10785 Berlin",
+                "Lautsprecher Teufel": "Budapester Str. 44, 10787 Berlin",
+                "Leapsome GmbH": "Brunnenstraße 153, 10115 Berlin",
+                "Lovehoney Group": "Warschauer Pl. 11, 10245 Berlin",
+                "Mehrower Allee - degewo": "Mehrower Allee 52, 12687 Berlin",
+                "Mektec Manufacturing": "Nonnendammallee 104, 13629 Berlin",
+                "Momox SE": "Schreiberhauer Str. 30, 10317 Berlin",
+                "Nike (powered by CBRE) - nike.com": "Mühlenstraße 25, 10243 Berlin",
+                "Omicron Energy Solutions": "Qualitätsweg 10, 12277 Berlin",
+                "Omio": "Warschauer Pl. 12, 10245 Berlin",
+                "On Cloud Service GmbH": "Skalitzer Str. 104, 10997 Berlin",
+                "Parloa - Berlin": "Oberwallstraße 6, 10117 Berlin",
+                "PenCef Pharma GmbH": "Robert-Rössle-Straße 10, 13125 Berlin",
+                "Personio Berlin": "Schönhauser Allee 188, 10119 Berlin",
+                "Pluxee - King - Midasplayer Vertriebs GmbH": "Karl-Liebknecht-Str. 32, 10178 Berlin",
+                "ProBioGen AG": "Goethestraße 54, 13086 Berlin",
+                "Safe Labs (ex Core Contributors)": "Fullerstraße 6, 12051 Berlin",
+                "Semrush - Berlin": "Bernburger Str. 27, 10963 Berlin",
+                "Shiftmove": "Oranienstraße 6, 10997 Berlin",
+                "TAM": "Ritterstraße 12, 10969 Berlin",
+                "TIB Molbiol Syntheselabor": "Eresburgstraße 22, 12103 Berlin",
+                "TUI Deutschland - tui.com": "Karl-Liebknecht-Str. 19, 10178 Berlin",
+                "Taxfix.de": "Köpenicker Str. 122, 10179 Berlin",
+                "Team Liquid - Liquid Enterprises GmbH": "Warschauer Str. 58, 10243 Berlin",
+                "TeamViewer Germany": "Pappelallee 78, 10437 Berlin",
+                "Verve Group Europe GmbH": "Karl-Liebknecht-Str. 32, 10178 Berlin",
+                "Viessmann Climate Solutions": "Euref-Campus 1, 10829 Berlin",
+                "byrd technologies": "Ritterstraße 12, 10969 Berlin",
+                "charles GmbH": "Gartenstraße 6, 10115 Berlin",
+                "gentlemates": "Gartenstraße 1, 10115 Berlin",
+                "nexnet GmbH": "Markgrafenstraße 62, 10969 Berlin"
+            };
 
             useEffect(() => {
                 // Load from Firestore
-                const unsubscribe = onSnapshot(collection(db, "registry"), (snapshot) => {
+                const unsubscribe = onSnapshot(collection(db, "registry"), async (snapshot) => {
                     const data = {};
                     snapshot.forEach(doc => {
                         data[doc.id] = doc.data();
                     });
-                    // If empty (first run), maybe load defaults, but for now just show what's in DB
-                    if (Object.keys(data).length === 0) {
-                        setRegistry({
-                            "Probio 8": { address: "Goethestraße 54, 13086 Berlin" },
-                            "Isi": { address: "Nonnendammallee 104, 13629 Berlin" }
+
+                    if (Object.keys(data).length === 0 && !processingRef.current) {
+                        processingRef.current = true;
+                        console.log("Seeding Registry with Defaults...");
+                        setRegistry(Object.fromEntries(Object.entries(DEFAULT_REGISTRY).map(([k, v]) => [k, { address: v }])));
+
+                        const batch = writeBatch(db);
+                        Object.entries(DEFAULT_REGISTRY).forEach(([name, addr]) => {
+                            const docRef = doc(db, "registry", name);
+                            batch.set(docRef, { address: addr });
                         });
+                        try { await batch.commit(); } catch (e) { console.error("Seed failed", e); }
                     } else {
                         setRegistry(data);
                     }
