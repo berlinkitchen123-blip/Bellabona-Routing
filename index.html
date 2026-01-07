@@ -911,8 +911,8 @@
 
                     let assigned = false;
                     for (const [driverId, keywords] of Object.entries(GOLDEN_PLAN)) {
-                        // Only assign to drivers who are ON for this date
-                        if (!driverAvailability[driverId]) continue;
+                        // Only assign to drivers who are NOT explicitly OFF
+                        if (driverAvailability[driverId] === false) continue;
 
                         const match = keywords.some(k => order.name.toLowerCase().includes(k.toLowerCase()));
                         if (match) {
@@ -1206,8 +1206,8 @@
                                         key={d}
                                         onClick={() => selectDate(d)}
                                         className={`p-2 text-sm rounded hover:bg-indigo-900 ${selectedDate === `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-                                                ? 'bg-indigo-600 text-white font-bold'
-                                                : 'text-slate-300'
+                                            ? 'bg-indigo-600 text-white font-bold'
+                                            : 'text-slate-300'
                                             }`}
                                     >
                                         {d}
