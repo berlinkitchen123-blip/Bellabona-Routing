@@ -602,7 +602,7 @@
                 }
             };
 
-            const processJsonData = (jsonContent) => {
+            const processJsonData = async (jsonContent) => {
                 try {
                     const json = JSON.parse(jsonContent);
                     let orders = Array.isArray(json) ? json : (json.orders || []);
@@ -641,8 +641,8 @@
                         };
                     });
 
-                    const newTours = calculateInitialTours(orders);
-                    saveDailyPlan(newTours);
+                    const newTours = await calculateInitialTours(orders);
+                    await saveDailyPlan(newTours);
                     setShowUpload(false);
                 } catch (err) {
                     alert("Invalid JSON format");
@@ -650,57 +650,79 @@
             };
 
 
-            const STATIC_COORDS = {
-                "Adyen N.V. Berlin": { lat: 52.5126, lng: 13.4168 },
-                "Aignostics GmbH": { lat: 52.5323, lng: 13.3831 },
-                "Almeida GmbH": { lat: 52.5253, lng: 13.3934 },
-                "Alteos GmbH": { lat: 52.5034, lng: 13.4517 },
-                "Bahnhofstr - degewo": { lat: 52.4568, lng: 13.5789 },
-                "Berlin Heart": { lat: 52.4284, lng: 13.3338 },
-                "Beyvers GmbH Produktion": { lat: 52.4223, lng: 13.3541 },
-                "Beyvers GmbH Verwaltung": { lat: 52.4223, lng: 13.3541 },
-                "Bitpanda - German Branch": { lat: 52.5147, lng: 13.3949 },
-                "Bonial International - bonial.com": { lat: 52.5386, lng: 13.3862 },
-                "Brunnenstr - degewo": { lat: 52.5401, lng: 13.3937 },
-                "Cognita Deutschland GmbH": { lat: 52.5204, lng: 13.3888 },
-                "Getränke Hoffmann GmbH": { lat: 52.3615, lng: 13.4312 },
-                "Halle 2 Küche - iSi Automotive Berlin": { lat: 52.5361, lng: 13.2597 },
-                "Halle 3 Küche - iSi Automotive Berlin": { lat: 52.5361, lng: 13.2597 },
-                "Ingenieurbüro Rüdiger Jockwer GmbH": { lat: 52.4975, lng: 13.3642 },
-                "KWS Berlin GmbH": { lat: 52.5096, lng: 13.3759 },
-                "Kayak Germany GmbH": { lat: 52.5186, lng: 13.4287 },
-                "Koppla GmbH": { lat: 52.5053, lng: 13.3908 },
-                "Kurfürstenstr - degewo": { lat: 52.5042, lng: 13.3489 },
-                "Lautsprecher Teufel": { lat: 52.5051, lng: 13.3392 },
-                "Leapsome GmbH": { lat: 52.5369, lng: 13.3957 },
-                "Lovehoney Group": { lat: 52.5039, lng: 13.4492 },
-                "Mehrower Allee - degewo": { lat: 52.5539, lng: 13.5658 },
-                "Mektec Manufacturing": { lat: 52.5361, lng: 13.2597 },
-                "Momox SE": { lat: 52.5015, lng: 13.4735 },
-                "Nike (powered by CBRE) - nike.com": { lat: 52.5065, lng: 13.4402 },
-                "Omicron Energy Solutions": { lat: 52.4178, lng: 13.3524 },
-                "Omio": { lat: 52.5039, lng: 13.4496 },
-                "On Cloud Service GmbH": { lat: 52.4994, lng: 13.4428 },
-                "Parloa - Berlin": { lat: 52.5147, lng: 13.3949 },
-                "PenCef Pharma GmbH": { lat: 52.6186, lng: 13.4983 },
-                "Personio Berlin": { lat: 52.5398, lng: 13.4116 },
-                "Pluxee - King - Midasplayer Vertriebs GmbH": { lat: 52.5238, lng: 13.4145 },
-                "ProBioGen AG": { lat: 52.5562, lng: 13.4547 },
-                "Safe Labs (ex Core Contributors)": { lat: 52.4578, lng: 13.4398 },
-                "Semrush - Berlin": { lat: 52.5048, lng: 13.3789 },
-                "Shiftmove": { lat: 52.5002, lng: 13.4182 },
-                "TAM": { lat: 52.5015, lng: 13.4132 },
-                "TIB Molbiol Syntheselabor": { lat: 52.4539, lng: 13.3648 },
-                "TUI Deutschland - tui.com": { lat: 52.5218, lng: 13.4095 },
-                "Taxfix.de": { lat: 52.5078, lng: 13.4357 },
-                "Team Liquid - Liquid Enterprises GmbH": { lat: 52.5092, lng: 13.4514 },
-                "TeamViewer Germany": { lat: 52.5448, lng: 13.4168 },
-                "Verve Group Europe GmbH": { lat: 52.5238, lng: 13.4145 },
-                "Viessmann Climate Solutions": { lat: 52.4815, lng: 13.3562 },
-                "byrd technologies": { lat: 52.5015, lng: 13.4132 },
-                "charles GmbH": { lat: 52.5284, lng: 13.3957 },
-                "gentlemates": { lat: 52.5282, lng: 13.3962 },
-                "nexnet GmbH": { lat: 52.5105, lng: 13.3912 }
+            // Geocoding cache - stores coordinates for addresses to avoid repeated API calls
+            const geocodeCache = useRef({});
+            const registryRef = useRef({});
+
+            // Load geocoding cache from Firebase
+            useEffect(() => {
+                const unsubscribe = onSnapshot(collection(db, "geocode_cache"), (snapshot) => {
+                    const cache = {};
+                    snapshot.forEach(doc => {
+                        cache[doc.id] = doc.data();
+                    });
+                    geocodeCache.current = cache;
+                    console.log("Geocode cache loaded:", Object.keys(cache).length, "addresses");
+                });
+                return () => unsubscribe();
+            }, []);
+
+            // Load registry for address lookup
+            useEffect(() => {
+                const unsubscribe = onSnapshot(collection(db, "registry"), (snapshot) => {
+                    const reg = {};
+                    snapshot.forEach(doc => {
+                        reg[doc.id] = doc.data();
+                    });
+                    registryRef.current = reg;
+                    console.log("Registry loaded:", Object.keys(reg).length, "companies");
+                });
+                return () => unsubscribe();
+            }, []);
+
+            // Geocode an address and cache the result
+            const geocodeAddress = async (address, companyName) => {
+                // Check cache first
+                const cacheKey = companyName || address;
+                if (geocodeCache.current[cacheKey]) {
+                    const cached = geocodeCache.current[cacheKey];
+                    if (cached.lat && cached.lng) {
+                        console.log("✅ Cache hit for:", cacheKey);
+                        return { lat: cached.lat, lng: cached.lng };
+                    }
+                }
+
+                // Geocode using Nominatim
+                try {
+                    const query = address ? `${address}, Berlin, Germany` : `${companyName}, Berlin, Germany`;
+                    const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`, {
+                        headers: { 'User-Agent': 'BellaBona-IntelliRoute/2.0' }
+                    });
+                    const data = await res.json();
+
+                    if (data && data.length > 0) {
+                        const coords = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+
+                        // Cache the result in Firebase
+                        try {
+                            await setDoc(doc(db, "geocode_cache", cacheKey), {
+                                ...coords,
+                                address: address,
+                                companyName: companyName,
+                                lastUpdated: new Date().toISOString()
+                            });
+                            console.log("✅ Geocoded and cached:", cacheKey, coords);
+                        } catch (e) {
+                            console.warn("Cache save failed:", e);
+                        }
+
+                        return coords;
+                    }
+                } catch (e) {
+                    console.error("Geocoding failed for:", cacheKey, e);
+                }
+
+                return null;
             };
 
             const haversine = (lat1, lon1, lat2, lon2) => {
@@ -714,18 +736,44 @@
                 return R * c;
             };
 
-            const calculateInitialTours = (orders) => {
+            const calculateInitialTours = async (orders) => {
                 setLoading(true);
                 const newTours = DRIVERS.map(d => ({ driverId: d.id, driverName: d.name, orders: [] }));
 
                 const unassigned = [];
                 const assignedIds = new Set();
 
-                orders.forEach(order => {
-                    // Immediate Geocode Lookup
-                    if (!order.lat && !order.lng && STATIC_COORDS[order.name]) {
-                        order.lat = STATIC_COORDS[order.name].lat;
-                        order.lng = STATIC_COORDS[order.name].lng;
+                // Geocode orders using Registry as source of truth
+                for (const order of orders) {
+                    if (!order.lat || !order.lng) {
+                        // Try to find company in Registry
+                        const registryEntry = registryRef.current[order.name];
+
+                        if (registryEntry && registryEntry.address) {
+                            // Use Registry address
+                            const coords = await geocodeAddress(registryEntry.address, order.name);
+                            if (coords) {
+                                order.lat = coords.lat;
+                                order.lng = coords.lng;
+                                order.address = registryEntry.address; // Update to Registry address
+                            }
+                        } else if (order.address) {
+                            // Fall back to JSON address if not in Registry
+                            console.warn("⚠️ Company not in Registry:", order.name, "- using JSON address");
+                            const coords = await geocodeAddress(order.address, order.name);
+                            if (coords) {
+                                order.lat = coords.lat;
+                                order.lng = coords.lng;
+                            }
+                        } else {
+                            // Last resort: geocode company name
+                            console.warn("⚠️ No address found for:", order.name, "- geocoding company name");
+                            const coords = await geocodeAddress("", order.name);
+                            if (coords) {
+                                order.lat = coords.lat;
+                                order.lng = coords.lng;
+                            }
+                        }
                     }
 
                     let assigned = false;
@@ -742,7 +790,7 @@
                         }
                     }
                     if (!assigned) unassigned.push(order);
-                });
+                }
 
                 // Sort unassigned by Postal Code for rough clustering before distribution
                 unassigned.sort((a, b) => {
