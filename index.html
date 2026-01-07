@@ -328,7 +328,7 @@
             return <div ref={mapContainer} className="w-full h-full" />;
         };
 
-        const GridView = ({ tours, setTours, packerNames, setPackerNames, onSave }) => {
+        const GridView = ({ tours, setTours, packerNames, setPackerNames, onSave, registry }) => {
             const handleOrderClick = (lat, lng, name) => {
                 if (lat && lng && window.mapInstance) {
                     window.mapInstance.flyTo({ center: [lng, lat], zoom: 14, speed: 1.5 });
@@ -410,11 +410,32 @@
                                                         <span className="bg-indigo-900 px-1 rounded text-[9px] text-indigo-300">🍽️ {order.dishes || '?'}</span>
                                                     </div>
                                                     <div className="text-right flex flex-col items-end">
-                                                        {order.eatingTimeMinutes && (
-                                                            <span className="text-[9px] text-orange-400 font-mono mb-0.5" title="Eating Time (Deadline + 30m)">
-                                                                🍽️ {Math.floor(order.eatingTimeMinutes / 60)}:{String(order.eatingTimeMinutes % 60).padStart(2, '0')}
-                                                            </span>
-                                                        )}
+                                                        {(() => {
+                                                            // Live Lookup for Eating Time
+                                                            const regEntry = registry && registry[order.name];
+                                                            // Try live registry first, then order snapshot, then ignore
+                                                            const eTimeStr = regEntry?.eatingTime || order.registryEatingTime;
+
+                                                            if (eTimeStr) {
+                                                                const [eh, em] = eTimeStr.split(':').map(Number);
+                                                                const eTimeMins = eh * 60 + em;
+                                                                // Recalculate late status based on live data if needed, but for now just show the time
+                                                                return (
+                                                                    <span className="text-[9px] text-orange-400 font-mono mb-0.5" title={`Eating Time: ${eTimeStr}`}>
+                                                                        🍽️ {eh}:{String(em).padStart(2, '0')}
+                                                                    </span>
+                                                                );
+                                                            } else if (order.eatingTimeMinutes) {
+                                                                // Fallback to calculated/estimated
+                                                                return (
+                                                                    <span className="text-[9px] text-orange-400/50 font-mono mb-0.5" title="Estimated Eating Time">
+                                                                        🍽️ {Math.floor(order.eatingTimeMinutes / 60)}:{String(order.eatingTimeMinutes % 60).padStart(2, '0')}
+                                                                    </span>
+                                                                );
+                                                            }
+                                                            return null;
+                                                        })()}
+
                                                         {arrivalTime && (
                                                             <span className={`px-1 rounded text-[9px] font-bold ${isLate ? 'bg-red-900 text-red-300' : 'bg-emerald-900 text-emerald-300'}`}>
                                                                 {isLate ? '⚠️' : '✓'} {arrivalTime}
@@ -1489,6 +1510,7 @@
                                         packerNames={packerNames}
                                         setPackerNames={setPackerNames}
                                         onSave={saveDailyPlan}
+                                        registry={registry}
                                     />
                                 </div>
                             </div>
