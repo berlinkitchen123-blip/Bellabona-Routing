@@ -495,16 +495,18 @@
                     <p className="mb-4 text-slate-400">Manage customer addresses here. Data is synced to the cloud.</p>
 
                     <div className="grid grid-cols-2 gap-4">
-                        {Object.entries(registry).map(([name, data]) => (
-                            <div key={name} className="bg-slate-800 p-4 rounded border border-slate-600">
-                                <input className="bg-transparent font-bold w-full mb-2 border-b border-slate-600 focus:outline-none" defaultValue={name} readOnly />
-                                <input
-                                    className="bg-slate-900 w-full p-2 rounded text-sm text-slate-300"
-                                    defaultValue={data.address}
-                                    onBlur={(e) => save(name, e.target.value)}
-                                />
-                            </div>
-                        ))}
+                        {Object.entries(registry)
+                            .sort(([a], [b]) => a.localeCompare(b)) // Alphabetical sort
+                            .map(([name, data]) => (
+                                <div key={name} className="bg-slate-800 p-4 rounded border border-slate-600">
+                                    <input className="bg-transparent font-bold w-full mb-2 border-b border-slate-600 focus:outline-none" defaultValue={name} readOnly />
+                                    <input
+                                        className="bg-slate-900 w-full p-2 rounded text-sm text-slate-300"
+                                        defaultValue={data.address}
+                                        onBlur={(e) => save(name, e.target.value)}
+                                    />
+                                </div>
+                            ))}
                     </div>
                     <button className="mt-4 bg-indigo-600 px-4 py-2 rounded font-bold" onClick={() => {
                         const name = prompt("Enter Company Name");
@@ -519,6 +521,31 @@
             const [tours, setTours] = useState([]);
             const [view, setView] = useState('grid');
             const [loading, setLoading] = useState(false);
+            const [showCalendar, setShowCalendar] = useState(false);
+            const [driverAvailability, setDriverAvailability] = useState({});
+            const [gridHeight, setGridHeight] = useState(50); // Percentage of screen
+
+            // Load driver availability for selected date
+            useEffect(() => {
+                const loadAvailability = async () => {
+                    try {
+                        const docRef = doc(db, "driver_availability", selectedDate);
+                        const docSnap = await getDoc(docRef);
+
+                        if (docSnap.exists()) {
+                            setDriverAvailability(docSnap.data().drivers || {});
+                        } else {
+                            // Default: all drivers ON
+                            const defaultAvail = {};
+                            DRIVERS.forEach(d => { defaultAvail[d.id] = true; });
+                            setDriverAvailability(defaultAvail);
+                        }
+                    } catch (e) {
+                        console.error("Error loading availability:", e);
+                    }
+                };
+                loadAvailability();
+            }, [selectedDate]);
 
             useEffect(() => {
                 const loadPlan = async () => {
@@ -534,8 +561,6 @@
                                 console.log("Loaded plan for", selectedDate);
                             }
                         } else {
-                            // If no plan exists for this date, reset to empty or default state
-                            // Keep tours empty until user uploads something
                             setTours([]);
                         }
                     } catch (e) {
@@ -547,16 +572,21 @@
                 loadPlan();
             }, [selectedDate]);
 
-            useEffect(() => {
-                if (window.DEFAULT_ORDERS && tours.length === 0) {
-                    // Only load default if absolutely nothing else is loaded and we are on initial load? 
-                    // Actually, let's disable auto-loading window.DEFAULT_ORDERS if we want full calendar control.
-                    // Or only load it if we are on "today" and it's empty?
-                    // For now, let's leave it as a fallback but the calendar load above should take precedence if async works right.
-                    // To be safe, let's remove the legacy default loader or make it smarter.
-                    // calculateInitialTours(window.DEFAULT_ORDERS); 
+            const toggleDriverAvailability = async (driverId) => {
+                const newAvail = { ...driverAvailability, [driverId]: !driverAvailability[driverId] };
+                setDriverAvailability(newAvail);
+
+                // Save to Firebase
+                try {
+                    await setDoc(doc(db, "driver_availability", selectedDate), {
+                        date: selectedDate,
+                        drivers: newAvail,
+                        lastUpdated: new Date().toISOString()
+                    });
+                } catch (e) {
+                    console.error("Error saving availability:", e);
                 }
-            }, []);
+            };
 
             const handleOrderMove = (orderId, targetDriverId) => {
                 const newTours = [...tours];
@@ -746,8 +776,21 @@
                 // Geocode orders using Registry as source of truth
                 for (const order of orders) {
                     if (!order.lat || !order.lng) {
-                        // Try to find company in Registry
-                        const registryEntry = registryRef.current[order.name];
+                        // Smart branch matching: "Nike - Mitte" should match "Nike (powered by CBRE)" in Registry
+                        let registryEntry = registryRef.current[order.name];
+
+                        // If exact match not found, try fuzzy matching for branches
+                        if (!registryEntry) {
+                            const baseName = order.name.split('-')[0].trim();
+                            const matchingKey = Object.keys(registryRef.current).find(key =>
+                                key.toLowerCase().includes(baseName.toLowerCase()) ||
+                                baseName.toLowerCase().includes(key.split(/[-()]/)[0].trim().toLowerCase())
+                            );
+                            if (matchingKey) {
+                                registryEntry = registryRef.current[matchingKey];
+                                console.log(`🔗 Branch matched: "${order.name}" → "${matchingKey}"`);
+                            }
+                        }
 
                         if (registryEntry && registryEntry.address) {
                             // Use Registry address
@@ -755,7 +798,7 @@
                             if (coords) {
                                 order.lat = coords.lat;
                                 order.lng = coords.lng;
-                                order.address = registryEntry.address; // Update to Registry address
+                                order.address = registryEntry.address;
                             }
                         } else if (order.address) {
                             // Fall back to JSON address if not in Registry
@@ -778,6 +821,9 @@
 
                     let assigned = false;
                     for (const [driverId, keywords] of Object.entries(GOLDEN_PLAN)) {
+                        // Only assign to drivers who are ON for this date
+                        if (!driverAvailability[driverId]) continue;
+
                         const match = keywords.some(k => order.name.toLowerCase().includes(k.toLowerCase()));
                         if (match) {
                             const tour = newTours.find(t => t.driverId === driverId);
@@ -799,13 +845,15 @@
                     return zipA.localeCompare(zipB);
                 });
 
+                // Only distribute to active drivers
+                const activeTours = newTours.filter(t => driverAvailability[t.driverId]);
                 let dIdx = 0;
                 unassigned.forEach(order => {
-                    for (let i = 0; i < newTours.length; i++) {
-                        const tour = newTours[(dIdx + i) % newTours.length];
+                    for (let i = 0; i < activeTours.length; i++) {
+                        const tour = activeTours[(dIdx + i) % activeTours.length];
                         if (tour.orders.length < 20) {
                             tour.orders.push(order);
-                            dIdx = (dIdx + 1) % newTours.length;
+                            dIdx = (dIdx + 1) % activeTours.length;
                             break;
                         }
                     }
@@ -879,6 +927,81 @@
                 );
             };
 
+            // Calendar Modal Component
+            const CalendarModal = () => {
+                const [month, setMonth] = useState(new Date(selectedDate));
+                const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+                const firstDay = new Date(month.getFullYear(), month.getMonth(), 1).getDay();
+                const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+                const blanks = Array.from({ length: firstDay === 0 ? 6 : firstDay - 1 });
+
+                const selectDate = (day) => {
+                    const yyyy = month.getFullYear();
+                    const mm = String(month.getMonth() + 1).padStart(2, '0');
+                    const dd = String(day).padStart(2, '0');
+                    setSelectedDate(`${yyyy}-${mm}-${dd}`);
+                    setShowCalendar(false);
+                };
+
+                return (
+                    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowCalendar(false)}>
+                        <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-between mb-4">
+                                <button onClick={() => setMonth(new Date(month.setMonth(month.getMonth() - 1)))} className="text-white hover:text-indigo-400">◀</button>
+                                <h3 className="text-white font-bold">{month.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</h3>
+                                <button onClick={() => setMonth(new Date(month.setMonth(month.getMonth() + 1)))} className="text-white hover:text-indigo-400">▶</button>
+                            </div>
+                            <div className="grid grid-cols-7 gap-2">
+                                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
+                                    <div key={d} className="text-center text-xs text-slate-400 font-bold p-2">{d}</div>
+                                ))}
+                                {blanks.map((_, i) => <div key={`blank-${i}`} />)}
+                                {days.map(day => {
+                                    const isSelected = selectedDate === `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                                    return (
+                                        <button
+                                            key={day}
+                                            onClick={() => selectDate(day)}
+                                            className={`p-2 rounded text-sm font-bold transition-all ${isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                                                }`}
+                                        >
+                                            {day}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            // Driver Availability Panel
+            const DriverPanel = () => {
+                return (
+                    <div className="bg-slate-900 border border-slate-700 rounded-lg p-4 mb-4">
+                        <h3 className="text-white font-bold mb-3 text-sm">Driver Availability for {selectedDate}</h3>
+                        <div className="grid grid-cols-4 gap-2">
+                            {DRIVERS.map(driver => {
+                                const isOn = driverAvailability[driver.id] !== false;
+                                return (
+                                    <button
+                                        key={driver.id}
+                                        onClick={() => toggleDriverAvailability(driver.id)}
+                                        className={`px-3 py-2 rounded text-xs font-bold transition-all ${isOn
+                                                ? 'bg-emerald-600 text-white border-2 border-emerald-400'
+                                                : 'bg-slate-800 text-slate-500 border-2 border-slate-700'
+                                            }`}
+                                        style={{ backgroundColor: isOn ? driver.color : undefined }}
+                                    >
+                                        {isOn ? '✓' : '✗'} {driver.name}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                );
+            };
+
             const handleFileUpload = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -905,6 +1028,7 @@
             return (
                 <div className="h-screen flex flex-col bg-slate-950">
                     {showUpload && <UploadModal />}
+                    {showCalendar && <CalendarModal />}
                     <header className="bg-slate-900 border-b border-slate-700 h-16 flex items-center px-6 justify-between shrink-0 shadow-lg z-10">
                         <div className="flex items-center gap-6">
                             <h1 className="font-black text-xl tracking-tight text-white">BELLA<span className="text-indigo-500">BONA</span> ROT</h1>
@@ -914,15 +1038,13 @@
                             </nav>
                         </div>
                         <div className="flex items-center gap-3">
-                            <div className="flex items-center gap-2 bg-slate-800 px-3 py-2 rounded border border-slate-600">
+                            <button
+                                onClick={() => setShowCalendar(true)}
+                                className="flex items-center gap-2 bg-slate-800 px-3 py-2 rounded border border-slate-600 hover:border-indigo-500 transition-colors cursor-pointer"
+                            >
                                 <span className="text-xs text-slate-400 font-bold">📅</span>
-                                <input
-                                    type="date"
-                                    value={selectedDate}
-                                    onChange={(e) => setSelectedDate(e.target.value)}
-                                    className="bg-transparent text-slate-300 text-xs font-mono focus:outline-none cursor-pointer"
-                                />
-                            </div>
+                                <span className="text-slate-300 text-xs font-mono">{selectedDate}</span>
+                            </button>
                             <button onClick={() => setShowUpload(true)} className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold px-3 py-2 rounded border border-slate-600 transition-colors flex items-center gap-2">
                                 <span>📤 UPLOAD / PASTE JSON</span>
                             </button>
@@ -935,8 +1057,9 @@
                     <main className="flex-1 flex overflow-hidden relative">
                         {view === 'grid' && (
                             <div className="w-full h-full flex flex-col">
-                                <div className="h-[60%] border-b border-slate-700 relative group">
-                                    <RouteMap tours={tours} height={600} onOrderMove={handleOrderMove} onGeocodeUpdate={(id, lat, lng) => {
+                                <DriverPanel />
+                                <div style={{ height: `${gridHeight}%` }} className="border-b border-slate-700 relative group">
+                                    <RouteMap tours={tours.filter(t => driverAvailability[t.driverId] !== false)} height={600} onOrderMove={handleOrderMove} onGeocodeUpdate={(id, lat, lng) => {
                                         setTours(prev => prev.map(t => ({
                                             ...t,
                                             orders: t.orders.map(o => o.id === id ? { ...o, lat, lng } : o)
@@ -944,11 +1067,29 @@
                                     }} />
                                     <div className="absolute top-4 left-4 bg-slate-900/90 text-white p-3 rounded border border-white/10 backdrop-blur text-xs z-50 pointer-events-none">
                                         <div className="font-bold text-slate-400 mb-1">TOTAL ORDERS</div>
-                                        <div className="text-2xl font-black">{tours.reduce((acc, t) => acc + t.orders.length, 0)}</div>
+                                        <div className="text-2xl font-black">{tours.filter(t => driverAvailability[t.driverId] !== false).reduce((acc, t) => acc + t.orders.length, 0)}</div>
                                     </div>
+                                    {/* Resize Handle */}
+                                    <div
+                                        className="absolute bottom-0 left-0 right-0 h-2 bg-indigo-600/20 hover:bg-indigo-600/50 cursor-ns-resize group-hover:opacity-100 opacity-0 transition-opacity"
+                                        onMouseDown={(e) => {
+                                            const startY = e.clientY;
+                                            const startHeight = gridHeight;
+                                            const onMove = (e) => {
+                                                const delta = ((e.clientY - startY) / window.innerHeight) * 100;
+                                                setGridHeight(Math.max(20, Math.min(80, startHeight + delta)));
+                                            };
+                                            const onUp = () => {
+                                                document.removeEventListener('mousemove', onMove);
+                                                document.removeEventListener('mouseup', onUp);
+                                            };
+                                            document.addEventListener('mousemove', onMove);
+                                            document.addEventListener('mouseup', onUp);
+                                        }}
+                                    />
                                 </div>
-                                <div className="h-[40%] bg-slate-900 p-2">
-                                    <GridView tours={tours} setTours={setTours} />
+                                <div style={{ height: `${100 - gridHeight}%` }} className="bg-slate-900 p-2">
+                                    <GridView tours={tours.filter(t => driverAvailability[t.driverId] !== false)} setTours={setTours} />
                                 </div>
                             </div>
                         )}
