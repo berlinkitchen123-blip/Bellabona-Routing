@@ -147,12 +147,15 @@
         const DRIVERS = [
             { id: 'samir', name: 'Samir', level: 1, capacity: 16, isActive: true, color: '#f59e0b' },
             { id: 'ali1', name: 'Ali 1', level: 3, capacity: 12, isActive: true, color: '#ec4899' },
+            { id: 'ali2', name: 'Ali 2', level: 1, capacity: 10, isActive: true, color: '#f97316' },
+            { id: 'ali3', name: 'Ali 3', level: 2, capacity: 12, isActive: true, color: '#10b981' },
+            { id: 'ali4', name: 'Ali 4', level: 2, capacity: 12, isActive: true, color: '#06b6d4' },
+            { id: 'ankush', name: 'Ankush', level: 3, capacity: 12, isActive: true, color: '#8b5cf6' },
             { id: 'tasnim', name: 'Tasnim', level: 4, capacity: 16, isActive: true, color: '#d946ef' },
             { id: 'packtor1', name: 'Packator 1', level: 4, capacity: 10, isActive: true, color: '#eab308' },
-            { id: 'ali2', name: 'Ali 2', level: 1, capacity: 10, isActive: true, color: '#f97316' },
-            { id: 'josef', name: 'Jozef', level: 3, capacity: 10, isActive: true, color: '#ef4444' },
-            { id: 'packtor2', name: 'Packator 2', level: 4, capacity: 10, isActive: true, color: '#ffff00' },
-            { id: 'ali3', name: 'Ali 3', level: 2, capacity: 12, isActive: true, color: '#f59e0b' },
+            { id: 'packtor2', name: 'Packator 2', level: 4, capacity: 10, isActive: true, color: '#f43f5e' },
+            { id: 'packtor3', name: 'Packator 3', level: 4, capacity: 10, isActive: true, color: '#84cc16' },
+            { id: 'harsh', name: 'Harsh', level: 2, capacity: 12, isActive: true, color: '#6366f1' },
         ];
 
         const GOLDEN_PLAN = {
@@ -390,6 +393,20 @@
                                 <div className="p-2 border-t border-slate-700 text-[10px] text-center text-slate-400">
                                     {tour.orders.length} stops
                                 </div>
+                                <div className="p-2 border-t border-slate-700">
+                                    <label className="text-[9px] text-slate-500 block mb-1">Packer:</label>
+                                    <input
+                                        type="text"
+                                        placeholder="Who packs this?"
+                                        value={packerNames[tour.driverId] || ''}
+                                        onChange={(e) => {
+                                            const newPackerNames = { ...packerNames, [tour.driverId]: e.target.value };
+                                            setPackerNames(newPackerNames);
+                                        }}
+                                        onBlur={() => saveDailyPlan(tours)}
+                                        className="w-full bg-slate-800 text-slate-300 text-xs px-2 py-1 rounded border border-slate-600 focus:outline-none focus:border-indigo-500"
+                                    />
+                                </div>
                             </div>
                         );
                     })}
@@ -522,7 +539,9 @@
             const [view, setView] = useState('grid');
             const [loading, setLoading] = useState(false);
             const [showCalendar, setShowCalendar] = useState(false);
+            const [showDriverDropdown, setShowDriverDropdown] = useState(false);
             const [driverAvailability, setDriverAvailability] = useState({});
+            const [packerNames, setPackerNames] = useState({});
             const [gridHeight, setGridHeight] = useState(50); // Percentage of screen
 
             // Load driver availability for selected date
@@ -558,10 +577,12 @@
                             const data = docSnap.data();
                             if (data.tours) {
                                 setTours(data.tours);
+                                setPackerNames(data.packerNames || {});
                                 console.log("Loaded plan for", selectedDate);
                             }
                         } else {
                             setTours([]);
+                            setPackerNames({});
                         }
                     } catch (e) {
                         console.error("Error loading plan:", e);
@@ -624,6 +645,7 @@
                         date: selectedDate,
                         tours: currentTours,
                         drivers: DRIVERS,
+                        packerNames: packerNames,
                         lastUpdated: new Date().toISOString()
                     });
                     console.log("Daily plan saved for " + selectedDate);
@@ -975,28 +997,40 @@
                 );
             };
 
-            // Driver Availability Panel
-            const DriverPanel = () => {
+            // Driver Availability Dropdown Modal
+            const DriverAvailabilityModal = () => {
                 return (
-                    <div className="bg-slate-900 border border-slate-700 rounded-lg p-4 mb-4">
-                        <h3 className="text-white font-bold mb-3 text-sm">Driver Availability for {selectedDate}</h3>
-                        <div className="grid grid-cols-4 gap-2">
-                            {DRIVERS.map(driver => {
-                                const isOn = driverAvailability[driver.id] !== false;
-                                return (
-                                    <button
-                                        key={driver.id}
-                                        onClick={() => toggleDriverAvailability(driver.id)}
-                                        className={`px-3 py-2 rounded text-xs font-bold transition-all ${isOn
-                                                ? 'bg-emerald-600 text-white border-2 border-emerald-400'
-                                                : 'bg-slate-800 text-slate-500 border-2 border-slate-700'
-                                            }`}
-                                        style={{ backgroundColor: isOn ? driver.color : undefined }}
-                                    >
-                                        {isOn ? '✓' : '✗'} {driver.name}
-                                    </button>
-                                );
-                            })}
+                    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowDriverDropdown(false)}>
+                        <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-2xl max-w-md" onClick={(e) => e.stopPropagation()}>
+                            <h3 className="text-white font-bold mb-4 text-lg">Driver Availability - {selectedDate}</h3>
+                            <div className="space-y-2 max-h-96 overflow-y-auto">
+                                {DRIVERS.map(driver => {
+                                    const isOn = driverAvailability[driver.id] !== false;
+                                    return (
+                                        <div key={driver.id} className="flex items-center justify-between bg-slate-800 p-3 rounded border border-slate-700">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-4 h-4 rounded-full" style={{ backgroundColor: driver.color }} />
+                                                <span className="text-white font-medium">{driver.name}</span>
+                                            </div>
+                                            <button
+                                                onClick={() => toggleDriverAvailability(driver.id)}
+                                                className={`px-4 py-2 rounded font-bold text-xs transition-all ${isOn
+                                                    ? 'bg-emerald-600 text-white hover:bg-emerald-500'
+                                                    : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+                                                    }`}
+                                            >
+                                                {isOn ? '✓ ON' : '✗ OFF'}
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <button
+                                onClick={() => setShowDriverDropdown(false)}
+                                className="mt-4 w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-4 rounded transition-colors"
+                            >
+                                Done
+                            </button>
                         </div>
                     </div>
                 );
@@ -1029,6 +1063,7 @@
                 <div className="h-screen flex flex-col bg-slate-950">
                     {showUpload && <UploadModal />}
                     {showCalendar && <CalendarModal />}
+                    {showDriverDropdown && <DriverAvailabilityModal />}
                     <header className="bg-slate-900 border-b border-slate-700 h-16 flex items-center px-6 justify-between shrink-0 shadow-lg z-10">
                         <div className="flex items-center gap-6">
                             <h1 className="font-black text-xl tracking-tight text-white">BELLA<span className="text-indigo-500">BONA</span> ROT</h1>
@@ -1045,6 +1080,12 @@
                                 <span className="text-xs text-slate-400 font-bold">📅</span>
                                 <span className="text-slate-300 text-xs font-mono">{selectedDate}</span>
                             </button>
+                            <button
+                                onClick={() => setShowDriverDropdown(true)}
+                                className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold px-3 py-2 rounded border border-slate-600 transition-colors flex items-center gap-2"
+                            >
+                                <span>🚗 DRIVERS</span>
+                            </button>
                             <button onClick={() => setShowUpload(true)} className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold px-3 py-2 rounded border border-slate-600 transition-colors flex items-center gap-2">
                                 <span>📤 UPLOAD / PASTE JSON</span>
                             </button>
@@ -1057,7 +1098,6 @@
                     <main className="flex-1 flex overflow-hidden relative">
                         {view === 'grid' && (
                             <div className="w-full h-full flex flex-col">
-                                <DriverPanel />
                                 <div style={{ height: `${gridHeight}%` }} className="border-b border-slate-700 relative group">
                                     <RouteMap tours={tours.filter(t => driverAvailability[t.driverId] !== false)} height={600} onOrderMove={handleOrderMove} onGeocodeUpdate={(id, lat, lng) => {
                                         setTours(prev => prev.map(t => ({
