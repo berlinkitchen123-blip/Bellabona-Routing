@@ -570,16 +570,39 @@
                     const json = JSON.parse(jsonContent);
                     let orders = Array.isArray(json) ? json : (json.orders || []);
 
-                    orders = orders.map(o => ({
-                        id: o.id || Math.random().toString(36),
-                        name: o.name || "Unknown",
-                        address: o.address || "",
-                        postCode: o.postCode || "",
-                        boxes: o.boxes || 1,
-                        dishes: o.dishes || 0,
-                        deliverySlotStart: o.deliverySlotStart || "09:00",
-                        deliverySlotEnd: o.deliverySlotEnd || "12:00"
-                    }));
+                    orders = orders.map(o => {
+                        const boxCount = Array.isArray(o.boxes) ? o.boxes.length : (Number(o.boxes) || 1);
+
+                        let dishCount = 0;
+                        if (typeof o.dishes === 'number') {
+                            dishCount = o.dishes;
+                        } else if (Array.isArray(o.boxes)) {
+                            // Try to extract dish count from nested structure similar to python logic
+                            // Structure: box -> dishes -> users -> orderedQuantity
+                            dishCount = o.boxes.reduce((acc, box) => {
+                                const boxDishes = Array.isArray(box.dishes) ? box.dishes : [];
+                                return acc + boxDishes.reduce((dAcc, dish) => {
+                                    const users = Array.isArray(dish.users) ? dish.users : [];
+                                    return dAcc + users.reduce((uAcc, user) => uAcc + (user.orderedQuantity || 0), 0);
+                                }, 0);
+                            }, 0);
+                            // If deep extraction yielded 0 but we have boxes, maybe dishes are just counted differently or missing.
+                            if (dishCount === 0 && o.dishes) dishCount = Number(o.dishes) || 0;
+                        } else {
+                            dishCount = Number(o.dishes) || 0;
+                        }
+
+                        return {
+                            id: o.id || Math.random().toString(36),
+                            name: o.name || "Unknown",
+                            address: o.address || "",
+                            postCode: o.postCode || "",
+                            boxes: boxCount,
+                            dishes: dishCount,
+                            deliverySlotStart: o.deliverySlotStart || "09:00",
+                            deliverySlotEnd: o.deliverySlotEnd || "12:00"
+                        };
+                    });
 
                     const newTours = calculateInitialTours(orders);
                     saveDailyPlan(newTours);
