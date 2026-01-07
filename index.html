@@ -892,16 +892,61 @@
                     return zipA.localeCompare(zipB);
                 });
 
+                // DISTRIBUTE UNASSIGNED ORDERS: "Crystal Growth" Clustering
+                // Instead of Round Robin, assign each order to the driver who is CLOSEST to it
+                // This builds natural geographic zones preventing "messy" crossing routes
+
                 // Only distribute to active drivers
-                const activeTours = newTours.filter(t => driverAvailability[t.driverId]);
-                let dIdx = 0;
+                const activeTours = newTours.filter(t => driverAvailability[t.driverId] !== false);
+                const MAX_STOPS = 25; // Soft limit per driver
+
                 unassigned.forEach(order => {
-                    for (let i = 0; i < activeTours.length; i++) {
-                        const tour = activeTours[(dIdx + i) % activeTours.length];
-                        if (tour.orders.length < 20) {
-                            tour.orders.push(order);
-                            dIdx = (dIdx + 1) % activeTours.length;
-                            break;
+                    let bestTour = null;
+                    let minAddedDist = Infinity;
+
+                    // Find the best driver for this order
+                    activeTours.forEach(tour => {
+                        if (tour.orders.length >= MAX_STOPS) return; // Skip full drivers
+
+                        let distToTour = Infinity;
+
+                        if (tour.orders.length === 0) {
+                            // If tour is empty, measure from Kitchen (Potsdam)
+                            // This effectively assigns closest-to-kitchen orders to fresh drivers first
+                            if (order.lat && order.lng) {
+                                distToTour = haversine(POTSDAM_KITCHEN.lat, POTSDAM_KITCHEN.lng, order.lat, order.lng);
+                            } else {
+                                distToTour = 9999; // Penalty for no coords
+                            }
+                        } else {
+                            // Find distance to the NEAREST stop in this driver's current route
+                            // This ensures we group nearby orders together
+                            tour.orders.forEach(stop => {
+                                if (stop.lat && stop.lng && order.lat && order.lng) {
+                                    const d = haversine(stop.lat, stop.lng, order.lat, order.lng);
+                                    if (d < distToTour) distToTour = d;
+                                }
+                            });
+                            // If order has no coords, skip geometric matching (or assign randomly later)
+                            if (!order.lat || !order.lng) distToTour = 9999;
+                        }
+
+                        // We want the driver who is ALREADY closest to this order
+                        if (distToTour < minAddedDist) {
+                            minAddedDist = distToTour;
+                            bestTour = tour;
+                        }
+                    });
+
+                    // If we found a suitable driver, assign it
+                    if (bestTour) {
+                        bestTour.orders.push(order);
+                    } else {
+                        // If all drivers full (or none active), fallback to first active or random
+                        if (activeTours.length > 0) {
+                            activeTours[0].orders.push(order); // Overfill if necessary
+                        } else {
+                            console.error("No active drivers to assign order:", order.name);
                         }
                     }
                 });
