@@ -941,6 +941,16 @@
                         }
                     }
 
+                    // Calculate Urgency for Assignment
+                    // Note: registryEatingTime might have been set in geocoding block above
+                    const [h, m] = (order.deliverySlotEnd || "12:00").split(':').map(Number);
+                    let dL = (h * 60 + m) || 720;
+                    if (order.registryEatingTime) {
+                        const [eh, em] = order.registryEatingTime.split(':').map(Number);
+                        dL = eh * 60 + em;
+                    }
+                    order.deadlineMinutes = dL;
+
                     let assigned = false;
                     for (const [driverId, keywords] of Object.entries(GOLDEN_PLAN)) {
                         // Only assign to drivers who are NOT explicitly OFF
@@ -965,116 +975,145 @@
                     if (!assigned) unassigned.push(order);
                 }
 
-                // Sort unassigned by Postal Code for rough clustering before distribution
-                unassigned.sort((a, b) => {
-                    const zipA = a.postCode || a.address?.match(/\d{5}/)?.[0] || "00000";
-                    const zipB = b.postCode || b.address?.match(/\d{5}/)?.[0] || "00000";
-                    return zipA.localeCompare(zipB);
-                });
+                // --- CLUSTER-FIRST STRATEGY: GROUP THEN ASSIGN ---
 
-                // DISTRIBUTE UNASSIGNED ORDERS: "Crystal Growth" Clustering
-                // Instead of Round Robin, assign each order to the driver who is CLOSEST to it
-                // This builds natural geographic zones preventing "messy" crossing routes
-
-                // Only distribute to active drivers
-                const activeTours = newTours.filter(t => driverAvailability[t.driverId] !== false);
-                const MAX_STOPS = 25; // Soft limit per driver
-
-                // PRIORITIZE ASSIGNMENT:
-                // 1. Sort by Deadline (Urgent first) -> Ensures drivers serve urgent/eating time needs
-                // 2. Then by Postal Code -> Groups remaining geographically
-                unassigned.sort((a, b) => {
-                    // Parse deadlines (e.g. "12:00")
-                    const getMinutes = (timeStr) => {
-                        if (!timeStr) return 9999;
-                        const [h, m] = timeStr.split(':').map(Number);
-                        return h * 60 + m;
-                    };
-                    const timeA = getMinutes(a.deliverySlotEnd);
-                    const timeB = getMinutes(b.deliverySlotEnd);
-
-                    if (timeA !== timeB) return timeA - timeB; // Earlier deadline first
-                    return (a.postCode || "").localeCompare(b.postCode || ""); // Then postal code
-                });
-
+                // 1. Group Orders into Physical Stops (Locations)
+                // This ensures multiple orders for one building are assigned to the SAME driver as a single unit.
+                const stops = [];
                 unassigned.forEach(order => {
-                    let bestTour = null;
-                    let minAddedDist = Infinity;
+                    if (!order.lat || !order.lng) {
+                        stops.push({ lat: null, lng: null, address: order.address, items: [order] });
+                        return;
+                    }
 
-                    // Find the best driver for this order
-                    activeTours.forEach(tour => {
-                        if (tour.orders.length >= MAX_STOPS) return; // Skip full drivers
-
-                        let distToTour = Infinity;
-
-                        if (tour.orders.length === 0) {
-                            // ZONE-BASED ROUTING:
-                            // If tour is empty, use the driver's assigned Zone Anchor (Corner of Berlin)
-                            // This ensures they start in their designated area, not random or from Kitchen
-                            const driver = DRIVERS.find(d => d.id === tour.driverId);
-                            const anchor = driver?.zoneAnchor || POTSDAM_KITCHEN;
-
-                            if (order.lat && order.lng) {
-                                distToTour = haversine(anchor.lat, anchor.lng, order.lat, order.lng);
-                            } else {
-                                distToTour = 9999;
-                            }
-                        } else {
-                            // Find distance to the NEAREST stop in this driver's current route
-                            // This ensures we group nearby orders together
-                            tour.orders.forEach(stop => {
-                                if (stop.lat && stop.lng && order.lat && order.lng) {
-                                    const d = haversine(stop.lat, stop.lng, order.lat, order.lng);
-                                    if (d < distToTour) distToTour = d;
-                                }
-                            });
-                            // If order has no coords, skip geometric matching (or assign randomly later)
-                            if (!order.lat || !order.lng) distToTour = 9999;
-                        }
-
-                        // We want the driver who is ALREADY closest to this order
-                        if (distToTour < minAddedDist) {
-                            minAddedDist = distToTour;
-                            bestTour = tour;
-                        }
+                    // Try to find existing close stop (< 50m)
+                    let match = stops.find(s => {
+                        if (s.lat && s.lng) return haversine(s.lat, s.lng, order.lat, order.lng) < 0.05;
+                        return false;
                     });
 
-                    // If we found a suitable driver, assign it
-                    if (bestTour) {
-                        bestTour.orders.push(order);
+                    if (match) {
+                        match.items.push(order);
                     } else {
-                        // If all drivers full (or none active), fallback to first active or random
-                        if (activeTours.length > 0) {
-                            activeTours[0].orders.push(order); // Overfill if necessary
-                        } else {
-                            console.error("No active drivers to assign order:", order.name);
-                        }
+                        stops.push({ lat: order.lat, lng: order.lng, address: order.address, items: [order] });
                     }
                 });
 
-                // OPTIMIZE ROUTES: Time-Based Nearest Neighbor with Delivery Windows
-                const DEPARTURE_TIME = 10 * 60; // 10:00 AM in minutes
-                const AVG_SPEED_KM_PER_MIN = 1 / 3; // 20 km/h average in Berlin traffic
-                const STOP_TIME_MINUTES = 6; // Time to park, deliver, leave
+                // 2. Prepare Assignment Candidates
+                // Evaluate distance from each Stop to each Active Driver's Zone Anchor
+                const candidates = [];
+                const activeDriversList = DRIVERS.filter(d => d.id === 'josef' || driverAvailability[d.id] !== false);
+
+                // Track remaining capacity (Default 15 if not specified)
+                const driverCapacities = {};
+                activeDriversList.forEach(d => driverCapacities[d.id] = (d.capacity || 15));
+
+                stops.forEach(stop => {
+                    activeDriversList.forEach(driver => {
+                        let dist = 9999;
+                        if (stop.lat && stop.lng) {
+                            dist = haversine(stop.lat, stop.lng, driver.zoneAnchor.lat, driver.zoneAnchor.lng);
+                        }
+                        candidates.push({ stop, driverId: driver.id, dist });
+                    });
+                });
+
+                // 3. Greedy Global Assignment
+                // Sort by distance (Ascending) -> Closest matches get priority
+                candidates.sort((a, b) => a.dist - b.dist);
+
+                const assignedStops = new Set();
+                const driverStopMap = {};
+                activeDriversList.forEach(d => driverStopMap[d.id] = []);
+
+                const driverUrgentCount = {};
+                activeDriversList.forEach(d => driverUrgentCount[d.id] = 0);
+
+                candidates.forEach(cand => {
+                    if (assignedStops.has(cand.stop)) return; // Already assigned
+
+                    let cap = driverCapacities[cand.driverId];
+                    const demand = cand.stop.items.length; // Count boxes
+
+                    const deadline = cand.stop.items[0].deadlineMinutes || 9999;
+                    const isUrgent = (deadline <= 750); // 12:30 or earlier
+
+                    // CORE ZONE PRIORITY: "Divide Area First"
+                    // If < 3km, take it (Ignore limits)
+                    const isCore = (cand.dist < 3.0);
+
+                    if (isUrgent && driverUrgentCount[cand.driverId] >= 8 && !isCore) return;
+                    if (cap < demand && !isCore) return;
+
+                    driverStopMap[cand.driverId].push(cand.stop);
+                    driverCapacities[cand.driverId] -= demand;
+                    assignedStops.add(cand.stop);
+                    if (isUrgent) driverUrgentCount[cand.driverId]++;
+                });
+
+                // 4. Handle Overload (Force Assign Leftovers to Closest Driver)
+                stops.forEach(stop => {
+                    if (!assignedStops.has(stop)) {
+                        let bestDriverId = activeDriversList[0].id; // Fallback
+                        let minDist = Infinity;
+
+                        activeDriversList.forEach(d => {
+                            let dist = 9999;
+                            if (stop.lat && stop.lng) dist = haversine(stop.lat, stop.lng, d.zoneAnchor.lat, d.zoneAnchor.lng);
+                            if (dist < minDist) {
+                                minDist = dist;
+                                bestDriverId = d.id;
+                            }
+                        });
+
+                        // Force Push
+                        driverStopMap[bestDriverId].push(stop);
+                        assignedStops.add(stop);
+                    }
+                });
+
+                // 5. Populate Tours and Mark Assigned
+                activeDriversList.forEach(driver => {
+                    const tour = newTours.find(t => t.driverId === driver.id);
+                    if (tour) {
+                        const flatOrders = driverStopMap[driver.id].flatMap(s => s.items);
+                        tour.orders.push(...flatOrders);
+                        flatOrders.forEach(o => assignedIds.add(o.id));
+                    }
+                });
+
+                // OPTIMIZE ROUTES: Time-Based Nearest Neighbor
+                // Auto-Adjust Departure Time if orders are early
+                const DEPARTURE_TIME = 9 * 60 + 30; // 09:30 AM in minutes
+                const AVG_SPEED_KM_PER_MIN = 1 / 3; // 20 km/h average
+                const STOP_TIME_MINUTES = 5;
 
                 newTours.forEach(tour => {
                     if (tour.orders.length === 0) return;
 
                     // Parse delivery times and add urgency score
                     tour.orders.forEach(order => {
-                        // Parse delivery slot end time (e.g., "12:00")
                         const [hours, mins] = (order.deliverySlotEnd || "12:00").split(':').map(Number);
-                        order.deadlineMinutes = hours * 60 + mins;
+                        let deadline = (hours * 60 + mins) || 720;
 
-                        // Eating Time: Use Registry value if available, else default to Deadline + 30 mins
+                        // CRITICAL: Use Registry Eating Time as the REAL Deadline
+                        // If company eats at 11:30, we MUST deliver by 11:30.
                         if (order.registryEatingTime) {
                             const [eh, em] = order.registryEatingTime.split(':').map(Number);
-                            order.eatingTimeMinutes = eh * 60 + em;
+                            const eatingTime = eh * 60 + em;
+                            // Reset deadline to Eating Time if it's cleaner/stricter
+                            deadline = eatingTime;
+                            order.eatingTimeMinutes = eatingTime;
                         } else {
-                            order.eatingTimeMinutes = order.deadlineMinutes + 30; // Default
+                            order.eatingTimeMinutes = deadline + 30;
                         }
+                        order.deadlineMinutes = deadline;
                     });
 
+                    // Debug Log for Users
+                    if (tour.orders.length > 0) {
+                        console.log(`[Driver ${tour.driverName}] Orders: ${tour.orders.length}. Earliest Deadline: ${Math.min(...tour.orders.map(o => o.deadlineMinutes))}`);
+                    }
 
                     const optimized = [];
                     let currentPos = POTSDAM_KITCHEN;
@@ -1082,54 +1121,36 @@
                     const pool = [...tour.orders];
 
                     while (pool.length > 0) {
+                        // 1. Identify Critical Time Window
+                        // Find the absolute earliest deadline among remaining orders
+                        let minDeadline = Infinity;
+                        pool.forEach(o => {
+                            if (o.deadlineMinutes < minDeadline) minDeadline = o.deadlineMinutes;
+                        });
+
+                        // 2. Filter Candidates: "Basic Brain" Logic
+                        // Consider ONLY orders that are due within 30 minutes of the earliest deadline.
+                        // This prevents delivering a 13:00 order (next door) when an 11:30 order is waiting 5km away.
+                        const TIME_BUCKET = 15;
+                        const candidates = pool.filter(o => o.deadlineMinutes <= minDeadline + TIME_BUCKET);
+
+                        // 3. Find Nearest Neighbor among Candidates
+                        // "Then find which one is nearest from last stop"
                         let bestIdx = -1;
-                        let bestScore = -Infinity;
+                        let minDist = Infinity;
 
                         pool.forEach((o, idx) => {
-                            if (!o.lat || !o.lng) {
-                                // Orders without coords go last
-                                if (bestIdx === -1) bestIdx = idx;
-                                return;
-                            }
+                            // Only consider candidates in the bucket
+                            if (candidates.includes(o)) {
+                                let dist = 9999;
+                                if (currentPos.lat && o.lat && currentPos.lng && o.lng) {
+                                    dist = haversine(currentPos.lat, currentPos.lng, o.lat, o.lng);
+                                }
 
-                            const distance = haversine(currentPos.lat, currentPos.lng, o.lat, o.lng);
-                            const driveTime = distance / AVG_SPEED_KM_PER_MIN;
-                            const arrivalTime = currentTime + driveTime + STOP_TIME_MINUTES;
-
-                            // Calculate urgency: how much time buffer before deadline
-                            const timeUntilDeadline = o.deadlineMinutes - arrivalTime;
-
-                            // SCORING ALGORITHM - STRICT TIME ADHERENCE
-                            // Priority 1: Meet the Deadline (Urgency)
-                            // Priority 2: Minimize Travel Distance
-
-                            let score = 0;
-
-                            if (timeUntilDeadline < 0) {
-                                score = -100000 + timeUntilDeadline * 100; // Late penalty
-                            } else if (timeUntilDeadline < 60) {
-                                score = 5000 + (60 - timeUntilDeadline) * 50; // Critical buffer (Strict 1 Hour)
-                            } else {
-                                // ON TIME:
-                                // To ensure strict sequential time delivery (10:30 before 11:00),
-                                // we heavily weight the deadline time itself.
-                                // We invert the deadline minutes (1440 - deadline) so earlier = higher score.
-                                // Weight: 1 minute of earlier deadline = 100 points
-                                // Distance Weight: 1km = 50 points
-
-                                const deadlineScore = (1440 - o.deadlineMinutes) * 100;
-                                const distancePenalty = distance * 50;
-
-                                // Result: 11:00 deadline (660m) vs 10:30 (630m)
-                                // 10:30 gets +3000 points.
-                                // To override this, the 11:00 stop would need to be 60km closer!
-                                // This enforces strict time sequencing unless it's insanely inefficient.
-                                score = deadlineScore - distancePenalty;
-                            }
-
-                            if (score > bestScore) {
-                                bestScore = score;
-                                bestIdx = idx;
+                                if (dist < minDist) {
+                                    minDist = dist;
+                                    bestIdx = idx;
+                                }
                             }
                         });
 
@@ -1137,23 +1158,37 @@
 
                         const nextStop = pool.splice(bestIdx, 1)[0];
 
-                        // Update current time and position
-                        if (nextStop.lat && nextStop.lng) {
-                            const distance = haversine(currentPos.lat, currentPos.lng, nextStop.lat, nextStop.lng);
-                            const driveTime = distance / AVG_SPEED_KM_PER_MIN;
-                            currentTime += driveTime + STOP_TIME_MINUTES;
-                            currentPos = nextStop;
+                        // --- GROUPING LOGIC ---
+                        const siblings = [];
+                        for (let i = pool.length - 1; i >= 0; i--) {
+                            const candidate = pool[i];
+                            let isSame = false;
+                            if (nextStop.lat && nextStop.lng && candidate.lat && candidate.lng) {
+                                if (haversine(nextStop.lat, nextStop.lng, candidate.lat, candidate.lng) < 0.05) isSame = true;
+                            } else if (nextStop.address === candidate.address && nextStop.address) isSame = true;
 
-                            // Store estimated arrival for display
-                            nextStop.estimatedArrival = Math.floor(currentTime);
-
-                            // Check if we'll be late
-                            if (currentTime > nextStop.deadlineMinutes) {
-                                console.warn(`⚠️ Late delivery: ${nextStop.name} - Arrival: ${Math.floor(currentTime / 60)}:${String(Math.floor(currentTime % 60)).padStart(2, '0')}, Deadline: ${nextStop.deliverySlotEnd}`);
-                            }
+                            if (isSame) siblings.push(pool.splice(i, 1)[0]);
                         }
 
+                        // Update current time and position
+                        if (nextStop.lat && nextStop.lng) {
+                            const dist = haversine(currentPos.lat, currentPos.lng, nextStop.lat, nextStop.lng);
+                            const travel = dist / AVG_SPEED_KM_PER_MIN;
+                            currentTime += travel + STOP_TIME_MINUTES;
+                            currentPos = { lat: nextStop.lat, lng: nextStop.lng };
+                        } else {
+                            currentTime += 10;
+                        }
+
+                        nextStop.estimatedArrival = currentTime;
                         optimized.push(nextStop);
+
+                        // Process Siblings (Quick Drop)
+                        siblings.forEach(sib => {
+                            currentTime += 1; // 1 min extra per box
+                            sib.estimatedArrival = currentTime;
+                            optimized.push(sib);
+                        });
                     }
                     tour.orders = optimized;
                 });
@@ -1168,23 +1203,22 @@
                     t.orders.forEach(o => {
                         if (o.lat && o.lng) {
                             const dist = haversine(lastPos.lat, lastPos.lng, o.lat, o.lng);
-                            time += (dist / AVG_SPEED_KM_PER_MIN) + STOP_TIME_MINUTES;
+                            const travel = dist / AVG_SPEED_KM_PER_MIN;
+                            const stopTime = dist < 0.05 ? 1 : STOP_TIME_MINUTES; // Smart Stop Time
+                            time += travel + stopTime;
                             lastPos = { lat: o.lat, lng: o.lng };
                         } else {
-                            time += 15; // Penalty for unknown loc
+                            time += 15;
                         }
 
-                        // Check if Late (Deadline)
-                        if (o.deadlineMinutes && time > o.deadlineMinutes) {
+                        const timeStr = `${Math.floor(time / 60).toString().padStart(2, '0')}:${(Math.floor(time) % 60).toString().padStart(2, '0')}`;
+                        const isLate = (o.deadlineMinutes && time > o.deadlineMinutes);
+                        if (isLate) {
                             lateCount++;
-                            const arrivalStr = `${Math.floor(time / 60)}:${String(Math.floor(time % 60)).padStart(2, '0')}`;
-                            console.warn(`LATE: ${o.name} (Due: ${o.deliverySlotEnd}, Arr: ${arrivalStr})`);
+                            console.error(`  ⚠️ LATE: ${o.name} (Arr: ${timeStr} | Due: ${o.deliverySlotEnd})`);
+                        } else {
+                            console.log(`  ✅ OK: ${o.name} (Arr: ${timeStr} | Due: ${o.deliverySlotEnd})`);
                         }
-                        // Check Eating Time Limit (Soft)
-                        if (o.eatingTimeMinutes && time > o.eatingTimeMinutes) {
-                            console.warn(`MISSED EATING TIME: ${o.name} (Eat: ${Math.floor(o.eatingTimeMinutes / 60)}:${String(Math.floor(o.eatingTimeMinutes % 60)).padStart(2, '0')})`);
-                        }
-
                         o.estimatedArrival = time;
                     });
                 });
@@ -1197,7 +1231,6 @@
                 setLoading(false);
                 return newTours;
             };
-
             // Modal Component
             // Modal Component
             const UploadModal = () => {
@@ -1499,15 +1532,15 @@
 
                             <button
                                 onClick={() => {
-                                    if (confirm("Recalculate all routes? This will reset manual changes.")) {
+                                    if (confirm("Re-optimize all routes with Cluster-First Logic?")) {
                                         const allOrders = tours.flatMap(t => t.orders);
                                         calculateInitialTours(allOrders);
                                     }
                                 }}
-                                className="bg-cyan-900/50 hover:bg-cyan-800/50 border border-cyan-700/50 text-cyan-200 px-3 py-1.5 rounded text-sm font-bold transition-all flex items-center gap-2"
-                                title="Recalculate Routes with current Settings"
+                                className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded text-sm font-bold shadow-lg shadow-indigo-500/50 transition-all flex items-center gap-2"
+                                title="Apply Zone & Grouping Optimization"
                             >
-                                <span>🔄 REFRESH</span>
+                                <span>⚡ RE-ROUTE</span>
                             </button>
 
                             <button
