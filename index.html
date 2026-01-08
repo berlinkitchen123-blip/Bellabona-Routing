@@ -1554,13 +1554,19 @@
                                 onClick={() => {
                                     if (confirm("Re-optimize all routes with Cluster-First Logic?")) {
                                         setShowUpload(true);
-                                        setUploadProgress(5);
+                                        setUploadProgress(10);
+
+                                        // Force UI update and allow simple animation
                                         const allOrders = tours.flatMap(t => t.orders);
+
                                         setTimeout(async () => {
+                                            setUploadProgress(30);
+                                            // Run the full clustering and routing algorithm
                                             await calculateInitialTours(allOrders);
+
                                             setUploadProgress(100);
-                                            setTimeout(() => setShowUpload(false), 500);
-                                        }, 100);
+                                            setTimeout(() => setShowUpload(false), 800);
+                                        }, 500);
                                     }
                                 }}
                                 className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded text-sm font-bold shadow-lg shadow-indigo-500/50 transition-all flex items-center gap-2"
