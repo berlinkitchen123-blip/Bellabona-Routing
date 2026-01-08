@@ -145,18 +145,18 @@
         const POTSDAM_KITCHEN = { lat: 52.3906, lng: 13.0645, address: "Friedrich-Engels-Straße 24, 14473 Potsdam" };
 
         const DRIVERS = [
-            { id: 'samir', name: 'Samir', level: 1, capacity: 16, isActive: true, color: '#f59e0b' },
-            { id: 'ali1', name: 'Ali 1', level: 1, capacity: 12, isActive: true, color: '#ec4899' },
-            { id: 'ali2', name: 'Ali 2', level: 1, capacity: 10, isActive: true, color: '#ff4500' }, // OrangeRed
-            { id: 'ali3', name: 'Ali 3', level: 2, capacity: 12, isActive: true, color: '#32cd32' }, // LimeGreen
-            { id: 'ali4', name: 'Ali 4', level: 2, capacity: 12, isActive: true, color: '#00ced1' }, // DarkTurquoise
-            { id: 'ankush', name: 'Ankush', level: 3, capacity: 12, isActive: true, color: '#9400d3' }, // DarkViolet
-            { id: 'tasnim', name: 'Tasnim', level: 4, capacity: 16, isActive: true, color: '#ff00ff' }, // Magenta
-            { id: 'packtor1', name: 'Packator 1', level: 4, capacity: 10, isActive: true, color: '#ffd700' }, // Gold
-            { id: 'packtor2', name: 'Packator 2', level: 4, capacity: 10, isActive: true, color: '#dc143c' }, // Crimson
-            { id: 'packtor3', name: 'Packator 3', level: 4, capacity: 10, isActive: true, color: '#adff2f' }, // GreenYellow
-            { id: 'harsh', name: 'Harsh', level: 2, capacity: 12, isActive: true, color: '#4169e1' }, // RoyalBlue
-            { id: 'josef', name: 'Josef', level: 2, capacity: 12, isActive: true, color: '#000080' }, // Navy
+            { id: 'samir', name: 'Samir', level: 1, capacity: 16, isActive: true, color: '#f59e0b', zoneAnchor: { lat: 52.5219, lng: 13.4132 } }, // Mitte (Alex)
+            { id: 'ali1', name: 'Ali 1', level: 1, capacity: 12, isActive: true, color: '#ec4899', zoneAnchor: { lat: 52.5330, lng: 13.2300 } }, // Spandau/West
+            { id: 'ali2', name: 'Ali 2', level: 1, capacity: 10, isActive: true, color: '#ff4500', zoneAnchor: { lat: 52.4800, lng: 13.4300 } }, // Neukölln
+            { id: 'ali3', name: 'Ali 3', level: 2, capacity: 12, isActive: true, color: '#32cd32', zoneAnchor: { lat: 52.4200, lng: 13.5000 } }, // South East
+            { id: 'ali4', name: 'Ali 4', level: 2, capacity: 12, isActive: true, color: '#00ced1', zoneAnchor: { lat: 52.5200, lng: 13.3000 } }, // Charlottenburg
+            { id: 'ankush', name: 'Ankush', level: 3, capacity: 12, isActive: true, color: '#9400d3', zoneAnchor: { lat: 52.5000, lng: 13.3500 } }, // Center West
+            { id: 'tasnim', name: 'Tasnim', level: 4, capacity: 16, isActive: true, color: '#ff00ff', zoneAnchor: { lat: 52.5100, lng: 13.3800 } }, // Center (Mitte)
+            { id: 'packtor1', name: 'Packator 1', level: 4, capacity: 10, isActive: true, color: '#ffd700', zoneAnchor: { lat: 52.5300, lng: 13.4200 } }, // Prenzlauer Berg
+            { id: 'packtor2', name: 'Packator 2', level: 4, capacity: 10, isActive: true, color: '#dc143c', zoneAnchor: { lat: 52.5500, lng: 13.4500 } }, // Weissensee
+            { id: 'packtor3', name: 'Packator 3', level: 4, capacity: 10, isActive: true, color: '#adff2f', zoneAnchor: { lat: 52.5000, lng: 13.4500 } }, // Friedrichshain
+            { id: 'harsh', name: 'Harsh', level: 2, capacity: 12, isActive: true, color: '#4169e1', zoneAnchor: { lat: 52.5600, lng: 13.3000 } }, // Reinickendorf
+            { id: 'josef', name: 'Josef', level: 2, capacity: 12, isActive: true, color: '#000080', zoneAnchor: { lat: 52.4800, lng: 13.3500 } }, // Schöneberg
         ];
 
         const GOLDEN_PLAN = {
@@ -1003,12 +1003,16 @@
                         let distToTour = Infinity;
 
                         if (tour.orders.length === 0) {
-                            // If tour is empty, measure from Kitchen (Potsdam)
-                            // This effectively assigns closest-to-kitchen orders to fresh drivers first
+                            // ZONE-BASED ROUTING:
+                            // If tour is empty, use the driver's assigned Zone Anchor (Corner of Berlin)
+                            // This ensures they start in their designated area, not random or from Kitchen
+                            const driver = DRIVERS.find(d => d.id === tour.driverId);
+                            const anchor = driver?.zoneAnchor || POTSDAM_KITCHEN;
+                            
                             if (order.lat && order.lng) {
-                                distToTour = haversine(POTSDAM_KITCHEN.lat, POTSDAM_KITCHEN.lng, order.lat, order.lng);
+                                distToTour = haversine(anchor.lat, anchor.lng, order.lat, order.lng);
                             } else {
-                                distToTour = 9999; // Penalty for no coords
+                                distToTour = 9999;
                             }
                         } else {
                             // Find distance to the NEAREST stop in this driver's current route
