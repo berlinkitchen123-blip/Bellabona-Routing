@@ -947,10 +947,10 @@
                         if (driverAvailability[driverId] === false) continue;
 
                         // SAFEGUARD: Don't overload Golden Plan drivers (e.g. Samir)
-                        // If they are over capacity + 5, leave for Zone Distribution
+                        // If they are over capacity (Strict), leave for Zone Distribution
                         const tour = newTours.find(t => t.driverId === driverId);
                         const driver = DRIVERS.find(d => d.id === driverId);
-                        if (tour && tour.orders.length >= (driver.capacity + 5)) continue;
+                        if (tour && tour.orders.length >= driver.capacity) continue;
 
                         const match = keywords.some(k => order.name.toLowerCase().includes(k.toLowerCase()));
                         if (match) {
@@ -1055,7 +1055,7 @@
                 // OPTIMIZE ROUTES: Time-Based Nearest Neighbor with Delivery Windows
                 const DEPARTURE_TIME = 10 * 60; // 10:00 AM in minutes
                 const AVG_SPEED_KM_PER_MIN = 1 / 3; // 20 km/h average in Berlin traffic
-                const STOP_TIME_MINUTES = 5; // Time to park, deliver, leave
+                const STOP_TIME_MINUTES = 6; // Time to park, deliver, leave
 
                 newTours.forEach(tour => {
                     if (tour.orders.length === 0) return;
