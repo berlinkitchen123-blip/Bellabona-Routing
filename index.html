@@ -773,8 +773,8 @@
                         return {
                             id: o.id || Math.random().toString(36),
                             name: o.name || "Unknown",
-                            address: o.address || "",
-                            postCode: o.postCode || "",
+                            address: (o.address || "") + (o.postCode || o.zipCode || o.postal_code || o.zip ? `, ${o.postCode || o.zipCode || o.postal_code || o.zip}` : ""),
+                            postCode: o.postCode || o.zipCode || o.postal_code || o.zip || "",
                             boxes: boxCount,
                             dishes: dishCount,
                             deliverySlotStart: o.deliverySlotStart || "09:00",
