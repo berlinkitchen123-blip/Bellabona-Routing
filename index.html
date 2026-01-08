@@ -822,6 +822,22 @@
 
             // Geocode an address and cache the result
             const geocodeAddress = async (address, companyName) => {
+                // HARDCODED FIXES for companies with bad geocoding results
+                const MANUAL_GEOCODES = {
+                    "Alteos": { lat: 52.50356, lng: 13.33917 },
+                    "Semrush": { lat: 52.5074, lng: 13.3904 }
+                };
+
+                // Check for Manual Overrides (Partial Match)
+                if (companyName) {
+                    for (const [key, coords] of Object.entries(MANUAL_GEOCODES)) {
+                        if (companyName.toLowerCase().includes(key.toLowerCase())) {
+                            console.log(`📍 Using Manual Geocode for ${companyName}`);
+                            return coords;
+                        }
+                    }
+                }
+
                 // Check cache first
                 const cacheKey = companyName || address;
                 if (geocodeCache.current[cacheKey]) {
@@ -834,7 +850,11 @@
 
                 // Geocode using Nominatim
                 try {
-                    const query = address ? `${address}, Berlin, Germany` : `${companyName}, Berlin, Germany`;
+                    // Improve Query: Always append "Berlin, Germany" for context if not already present
+                    let query = address || companyName; // Use address if available, otherwise companyName
+                    if (!query.toLowerCase().includes("berlin")) query += ", Berlin";
+                    if (!query.toLowerCase().includes("germany")) query += ", Germany";
+
                     const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`, {
                         headers: { 'User-Agent': 'BellaBona-IntelliRoute/2.0' }
                     });
