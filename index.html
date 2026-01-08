@@ -946,9 +946,14 @@
                         // Only assign to drivers who are NOT explicitly OFF
                         if (driverAvailability[driverId] === false) continue;
 
+                        // SAFEGUARD: Don't overload Golden Plan drivers (e.g. Samir)
+                        // If they are over capacity + 5, leave for Zone Distribution
+                        const tour = newTours.find(t => t.driverId === driverId);
+                        const driver = DRIVERS.find(d => d.id === driverId);
+                        if (tour && tour.orders.length >= (driver.capacity + 5)) continue;
+
                         const match = keywords.some(k => order.name.toLowerCase().includes(k.toLowerCase()));
                         if (match) {
-                            const tour = newTours.find(t => t.driverId === driverId);
                             if (tour) {
                                 tour.orders.push(order);
                                 assignedIds.add(order.id);
@@ -1101,8 +1106,9 @@
                             let score = 0;
 
                             if (timeUntilDeadline < 0) {
-                                // LATE: Penalty increases with lateness to minimize it
-                                score = -100000 + timeUntilDeadline;
+                                score = -100000 + timeUntilDeadline * 100; // Late penalty
+                            } else if (timeUntilDeadline < 60) {
+                                score = 5000 + (60 - timeUntilDeadline) * 50; // Critical buffer (Strict 1 Hour)
                             } else {
                                 // ON TIME:
                                 // To ensure strict sequential time delivery (10:30 before 11:00),
@@ -1151,6 +1157,41 @@
                     }
                     tour.orders = optimized;
                 });
+
+                // --- SIMULATION CHECK ---
+                console.group("🚀 Route Simulation Report");
+                let lateCount = 0;
+                newTours.forEach(t => {
+                    if (t.orders.length > 0) console.log(`DRIVER: ${t.driverName} (${t.orders.length} stops)`);
+                    let time = DEPARTURE_TIME;
+                    let lastPos = POTSDAM_KITCHEN;
+                    t.orders.forEach(o => {
+                        if (o.lat && o.lng) {
+                            const dist = haversine(lastPos.lat, lastPos.lng, o.lat, o.lng);
+                            time += (dist / AVG_SPEED_KM_PER_MIN) + STOP_TIME_MINUTES;
+                            lastPos = { lat: o.lat, lng: o.lng };
+                        } else {
+                            time += 15; // Penalty for unknown loc
+                        }
+
+                        // Check if Late (Deadline)
+                        if (o.deadlineMinutes && time > o.deadlineMinutes) {
+                            lateCount++;
+                            const arrivalStr = `${Math.floor(time / 60)}:${String(Math.floor(time % 60)).padStart(2, '0')}`;
+                            console.warn(`LATE: ${o.name} (Due: ${o.deliverySlotEnd}, Arr: ${arrivalStr})`);
+                        }
+                        // Check Eating Time Limit (Soft)
+                        if (o.eatingTimeMinutes && time > o.eatingTimeMinutes) {
+                            console.warn(`MISSED EATING TIME: ${o.name} (Eat: ${Math.floor(o.eatingTimeMinutes / 60)}:${String(Math.floor(o.eatingTimeMinutes % 60)).padStart(2, '0')})`);
+                        }
+
+                        o.estimatedArrival = time;
+                    });
+                });
+                if (lateCount === 0) console.log("%c✅ ALL ON TIME!", "color: green; font-weight: bold; font-size: 14px;");
+                else console.error(`❌ ${lateCount} LATE DELIVERIES DETECTED`);
+                console.groupEnd();
+
 
                 setTours(newTours);
                 setLoading(false);
