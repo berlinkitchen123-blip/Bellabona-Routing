@@ -898,6 +898,27 @@
 
             const calculateInitialTours = async (orders) => {
                 setLoading(true);
+                // Pre-process orders to attach Eating Times and Deadlines based on Registry
+                orders.forEach(order => {
+                    // Lookup Registry
+                    const regEntry = Object.values(registryRef.current || {}).find(r => r.address === order.address || r.companyName === order.name)
+                        || registryRef.current[order.name];
+
+                    if (regEntry && regEntry.eatingTime) {
+                        order.registryEatingTime = regEntry.eatingTime;
+                    }
+
+                    const [hours, mins] = (order.deliverySlotEnd || "12:00").split(':').map(Number);
+                    let deadline = (hours * 60 + mins) || 720;
+
+                    if (order.registryEatingTime) {
+                        const [eh, em] = order.registryEatingTime.split(':').map(Number);
+                        const eatingTime = eh * 60 + em;
+                        deadline = eatingTime;
+                    }
+                    order.deadlineMinutes = deadline;
+                });
+
                 const newTours = DRIVERS.map(d => ({ driverId: d.id, driverName: d.name, orders: [] }));
 
                 const unassigned = [];
