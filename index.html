@@ -1083,7 +1083,12 @@
                     // If < 3km, take it (Ignore limits)
                     const isCore = (cand.dist < 3.0);
 
-                    if (isUrgent && driverUrgentCount[cand.driverId] >= 8 && !isCore) return;
+                    // STRICT CAP on Urgent Orders (Lunch)
+                    // Even if in Core Zone, we cannot assign more than the driver can physically deliver in time.
+                    // 10:00 Start -> 11:00 City Arrival. 12:30 Deadline = 90 mins working time.
+                    // 90 mins / (5 mins stop + 2 mins drive) = ~12 stops max.
+                    if (isUrgent && driverUrgentCount[cand.driverId] >= 12) return;
+
                     if (cap < demand && !isCore) return;
 
                     driverStopMap[cand.driverId].push(cand.stop);
