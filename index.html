@@ -1150,8 +1150,9 @@
 
                         // 2. Filter Candidates: "Basic Brain" Logic
                         // Consider ONLY orders that are due within 30 minutes of the earliest deadline.
-                        // This prevents delivering a 13:00 order (next door) when an 11:30 order is waiting 5km away.
-                        const TIME_BUCKET = 15;
+                        // Consider orders due within 60 minutes of the earliest deadline.
+                        // This reduces zig-zagging by allowing 'on-the-way' stops that are slightly less urgent.
+                        const TIME_BUCKET = 60;
                         const candidates = pool.filter(o => o.deadlineMinutes <= minDeadline + TIME_BUCKET);
 
                         // 3. Find Nearest Neighbor among Candidates
